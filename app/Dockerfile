@@ -11,8 +11,8 @@ COPY . .
 RUN npm run build && npm test && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
-# git: every vault write is a commit, so any change can be seen and undone.
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata git && rm -rf /var/lib/apt/lists/*
+# git: every vault write is a commit, so any change can be seen and undone; ssh: the vault mirror pushes to GitHub.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata git openssh-client && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
