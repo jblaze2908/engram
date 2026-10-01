@@ -13,6 +13,8 @@ RUN npm run build && npm test && npm prune --omit=dev
 FROM node:22-bookworm-slim
 # git: every vault write is a commit, so any change can be seen and undone; ssh: the vault mirror pushes to GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates tzdata git openssh-client && rm -rf /var/lib/apt/lists/*
+# ssh refuses to run for a uid with no passwd entry; compose runs the app as 1600.
+RUN groupadd -g 1600 engram && useradd -u 1600 -g 1600 -M -d /srv/engram/home -s /usr/sbin/nologin engram
 WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
