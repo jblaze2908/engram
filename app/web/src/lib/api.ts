@@ -1,6 +1,6 @@
 import type {
-  Agent, AreaView, Artifact, ArtifactKind, CompiledProfile, Connection, ContextHome, Decision, Entity, EntityKind,
-  EntityView, Grant, JournalView, Memory, MemoryStatus, NewToken, ProfileFile, ProfileTarget, Proposal, Provenance,
+  Agent, AreaView, Artifact, ArtifactKind, CompiledProfile, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Entity, EntityKind,
+  EntityView, Grant, JournalView, Memory, MemoryStatus, NewConnection, NewToken, ProfileFile, ProfileTarget, Proposal, Provenance,
   Scope, Session, Skill, Status, TraceRow,
 } from "../../../shared/types";
 
@@ -99,4 +99,22 @@ export const api = {
   trace: (f: { who?: string; result?: TraceRow["result"]; day?: string } = {}) =>
     request<TraceRow[]>("GET", `/api/trace${qs(f)}`),
   connections: () => request<Connection[]>("GET", "/api/connections"),
+  connection: (id: string) => request<ConnectionDetail>("GET", `/api/connections/${enc(id)}`),
+  addConnection: (c: NewConnection) => request<ConnectResult>("POST", "/api/connections", c),
+  updateConnection: (id: string, patch: { untrusted?: boolean; token?: string }) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}`, patch),
+  connect: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/connect`),
+  refreshConnection: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/refresh`),
+  disconnect: (id: string) => request<unknown>("DELETE", `/api/connections/${enc(id)}`),
+  finishOAuth: (p: { state: string; code: string; iss?: string }) => request<ConnectResult>("POST", "/api/connections/oauth/finish", p),
+  setToolKind: (id: string, tool: string, kind: "read" | "write" | null) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}/tools/${enc(tool)}`, { kind }),
+  approveTool: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/approve`),
+  keepBlocked: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/keep`),
+  setAgentTools: (id: string, tools: string[]) => request<Agent>("PUT", `/api/agents/${enc(id)}/tools`, { tools }),
+
+  memoriesByIds: (ids: string[]) => request<Memory[]>("GET", `/api/memories${qs({ ids: ids.join(",") })}`),
+  editMemory: (id: string, text: string, valid_until?: string | null) => request<Memory>("POST", `/api/memories/${enc(id)}/edit`, { text, valid_until }),
+  markWrong: (id: string, reason: string) => request<Memory>("POST", `/api/memories/${enc(id)}/wrong`, { reason }),
+  forgetArtifact: (id: string) => request<{ id: string; memories: number }>("POST", `/api/artifacts/${enc(id)}/forget`),
+  linkToProfile: (proposal: string, file: string) => request<unknown>("POST", `/api/inbox/${enc(proposal)}/link-profile`, { file }),
+  undoAccept: (proposal: string) => request<{ forgotten: Memory; restored: Memory | null }>("POST", `/api/inbox/${enc(proposal)}/undo`),
 };

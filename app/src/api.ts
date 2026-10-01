@@ -76,6 +76,9 @@ export const api = new Hono()
   .get("/api/memories", you, (c) => {
     const status = q(c, "status", WORD), area = q(c, "area", SLUG), text = c.req.query("q")?.slice(0, 200);
     if (status && !MEMORY_STATUS.includes(status as MemoryStatus)) throw httpErr(400, "Invalid status");
+    // Batch read by id (the Artifacts page): any status, at most 100.
+    const batch = q(c, "ids", /^[A-Za-z0-9_:-]{1,120}(,[A-Za-z0-9_:-]{1,120}){0,99}$/);
+    if (batch) return c.json(S.listMemories({ status: "all", ids: [...new Set(batch.split(","))] }));
     const ids = text ? search({ query: text, kind: "memory", area, limit: 50 }).hits.map((h) => h.id) : undefined;
     return c.json(S.listMemories({ status: status || "active", area, ids }));
   })
@@ -119,8 +122,7 @@ export const api = new Hono()
   .post("/api/agents/:id/token", you, (c) => c.json(G.rotateToken(id(c))))
   .post("/api/agents/:id/revoke", you, (c) => c.json(G.revokeAgent(id(c))))
 
-  .get("/api/trace", you, (c) => c.json(listTrace({ who: q(c, "who", /^[\w .:-]{1,80}$/), result: q(c, "result", WORD), day: q(c, "day", DAYRE) })))
-  .get("/api/connections", you, (c) => c.json([]));
+  .get("/api/trace", you, (c) => c.json(listTrace({ who: q(c, "who", /^[\w .:-]{1,80}$/), result: q(c, "result", WORD), day: q(c, "day", DAYRE) })));
 
 api.notFound((c) => c.json({ error: "Not found" }, 404));
 api.onError((e: HttpError, c) => {
@@ -128,3 +130,6 @@ api.onError((e: HttpError, c) => {
   if (status === 500) console.error(new Date().toISOString(), c.req.method, c.req.path, e.stack);
   return c.json({ error: status === 500 ? "Something went wrong" : e.message }, status as ContentfulStatusCode);
 });
+
+// Shared with routes/*.ts so every /api route uses the same guard, body limits and session cookie.
+export { you, body, cookie as sessionCookie };

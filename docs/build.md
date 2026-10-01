@@ -88,6 +88,15 @@ Each call writes a trace row and bumps read counts for returned memories.
 `GET /api/connections` → Connection[] (empty until M2)
 `POST /api/memories {text,area,scope,valid_until?}` — "Add to Engram" from the UI (source kind `you`, accepted directly)
 
+M1 leftovers: `GET /api/memories?ids=a,b` · `POST /api/memories/:id/edit {text,valid_until?}` · `POST /api/memories/:id/wrong {reason}`
+`POST /api/artifacts/:id/forget` · `POST /api/inbox/:id/link-profile {file}` · `POST /api/inbox/:id/undo`
+
+Gateway (M2): `GET|POST /api/connections` → Connection[] / ConnectResult · `GET|PATCH|DELETE /api/connections/:id`
+`POST /api/connections/:id/connect|refresh` · `PATCH /api/connections/:id/tools/:tool {kind}` · `POST …/tools/:tool/approve|keep`
+`GET /api/connections/oauth/callback` (no cookie → hands off to the web app) · `POST /api/connections/oauth/finish {state,code,iss?}`
+`PUT /api/agents/:id/tools {tools}` → Agent. Code in `app/src/gateway/`; tests set `ENGRAM_DEV_ALLOW_LOCAL=1` to reach a mock on
+`http://127.0.0.1`, and `ENGRAM_URL` overrides the OAuth redirect base (default `https://$ENGRAM_HOST`).
+
 ## Rules
 
 - Pinned exact versions, famous packages only, nothing published in the last 7 days.

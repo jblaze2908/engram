@@ -5,6 +5,7 @@ import { now, uid, httpErr } from "./config.js";
 import { one, all, run, json, tx, type Row } from "./db.js";
 import { sha } from "./auth.js";
 import { trace, YOU } from "./trace.js";
+import { toolGrants } from "./gateway/store.js";
 
 export const GRANTABLE: Scope[] = ["personal", "finance", "health"];
 const newToken = () => `eg_${randomBytes(32).toString("base64url")}`;
@@ -13,7 +14,7 @@ const prefixOf = (t: string) => t.slice(0, 7);
 function toAgent(r: Row): Agent {
   const grants = all<{ scope: Scope; read: number; write: Grant["write"] }>("SELECT scope, read, write FROM grants WHERE agent_id=?", r.id);
   return {
-    id: r.id, name: r.name, kind: r.kind, profile: r.profile, hue: r.hue ?? null, skills: json(r.skills, []),
+    id: r.id, name: r.name, kind: r.kind, profile: r.profile, hue: r.hue ?? null, skills: json(r.skills, []), tools: toolGrants(r.id),
     grants: GRANTABLE.map((s) => { const g = grants.find((x) => x.scope === s); return { scope: s, read: !!g?.read, write: g?.write || "none" }; }),
     token_prefix: r.token_prefix, created_at: r.created_at, last_used_at: r.last_used_at ?? null, revoked: !!r.revoked,
   };

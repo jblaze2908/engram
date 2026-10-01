@@ -7,6 +7,7 @@ import { clock, daysUntil, shortDate, untilLabel } from "../lib/format";
 import { fromLabel, SCOPE_LABEL } from "../lib/labels";
 import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
+import { obsidianUrl } from "../lib/obsidian";
 import { BackLink, Breadcrumb, Btn, Card, CardHead, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, SearchField, Split } from "../components/ui";
 
 type Filter = "all" | "held" | "soon" | "superseded" | "forgotten";
@@ -96,6 +97,7 @@ function MemoryDetail({ id, back, onChanged }: { id: string; back: string; onCha
   }, [id]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
   if (!load.data) return load.error ? <ErrorNote error={load.error} onRetry={load.reload} /> : <Loading />;
   const { m, before } = load.data;
   const readers = agents.filter((a) => !a.revoked && a.grants.some((g) => g.scope === m.scope && g.read));
@@ -112,6 +114,25 @@ function MemoryDetail({ id, back, onChanged }: { id: string; back: string; onCha
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
+  // Edit writes a new memory by you that replaces this one; the old one stays, marked replaced.
+  async function saveEdit() {
+    if (!draft?.trim()) return;
+    setBusy(true); setError(null);
+    try {
+      const n = await api.editMemory(m.id, draft.trim());
+      setDraft(null); notify("Saved. The old version is kept, marked replaced.");
+      onChanged(); navigate(href(["context", "memories", n.id]));
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
+  async function wrong() {
+    const reason = window.prompt("What’s wrong with it? This goes in the vault’s history.");
+    if (!reason?.trim()) return;
+    setBusy(true); setError(null);
+    try { await api.markWrong(m.id, reason.trim().slice(0, 200)); notify("Marked wrong and forgotten."); load.reload(); onChanged(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
   const status = { active: "active", superseded: "replaced", held: "held", forgotten: "forgotten" }[m.status];
   return (
     <>
@@ -120,7 +141,16 @@ function MemoryDetail({ id, back, onChanged }: { id: string; back: string; onCha
         <Breadcrumb items={[{ label: "Context", href: "#/context" }, { label: areaName(m.area), href: href(["context", "areas", m.area]) }, { label: "Memory" }]} />
         <span className="text-[13px] text-ink-3">{SCOPE_LABEL[m.scope]} · {status}</span>
       </div>
-      <H1 className={`mt-3 ${m.status === "active" || m.status === "held" ? "" : "text-ink-2"}`}>{m.text}</H1>
+      {draft === null ? <H1 className={`mt-3 ${m.status === "active" || m.status === "held" ? "" : "text-ink-2"}`}>{m.text}</H1> : (
+        <form className="mt-3 flex flex-col gap-2 max-w-[760px]" onSubmit={(e) => { e.preventDefault(); saveEdit(); }}>
+          <label className="sr-only" htmlFor="mem-edit">Memory text</label>
+          <textarea id="mem-edit" autoFocus rows={3} value={draft} maxLength={4000} onChange={(e) => setDraft(e.target.value)} className="field text-[18px]" />
+          <div className="flex gap-2">
+            <button type="submit" disabled={busy || !draft.trim() || draft.trim() === m.text} className="bt bt-primary">Save as a new version</button>
+            <Btn kind="quiet" onClick={() => setDraft(null)}>Cancel</Btn>
+          </div>
+        </form>
+      )}
       <Lede>
         {m.valid_until ? `Good until ${shortDate(m.valid_until)}${daysUntil(m.valid_until) >= 0 ? ` (${untilLabel(m.valid_until)})` : ""}.` : "No end date; it holds until something replaces it."}
         {m.superseded_by ? " A newer memory has replaced it." : ""}
@@ -167,7 +197,10 @@ function MemoryDetail({ id, back, onChanged }: { id: string; back: string; onCha
       {error && <p role="alert" className="text-[13px] text-bad mt-5">{error}</p>}
       <div className="mt-7 flex items-center gap-2 flex-wrap">
         <LinkBtn href={href(["trace"], { id: m.id })}>Where it came from</LinkBtn>
+        {m.status === "active" && draft === null && <Btn disabled={busy} onClick={() => setDraft(m.text)}>Edit</Btn>}
+        {m.status !== "forgotten" && <Btn kind="quiet" disabled={busy} onClick={wrong}>Mark as wrong</Btn>}
         {m.status !== "forgotten" && <Btn kind="quiet" disabled={busy} onClick={forget}>Forget</Btn>}
+        {m.path && <LinkBtn kind="quiet" href={obsidianUrl(m.path)}>Open in Obsidian</LinkBtn>}
         <span className="ml-auto text-[12.5px] text-ink-3">Forgetting keeps a record in the trace; nothing is silently deleted.</span>
       </div>
     </>

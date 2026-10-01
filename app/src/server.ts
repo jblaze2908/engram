@@ -12,6 +12,9 @@ import { scan, startScanner } from "./index.js";
 import { ensureMasterKey, ensureSetupToken } from "./auth.js";
 import { api } from "./api.js";
 import { mcpRoute } from "./mcp.js";
+import { gateway } from "./routes/gateway.js";
+import { leftovers } from "./routes/leftovers.js";
+import { startGateway } from "./gateway/upstream.js";
 
 const WEB = new URL("../web/", import.meta.url).pathname;
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -44,6 +47,8 @@ app.onError((e: HttpError, c) => {
 app.get("/healthz", (c) => c.json({ ok: true }));
 app.all("/mcp", mcpRoute);
 app.route("/", api);
+app.route("/", gateway);
+app.route("/", leftovers);
 app.get("*", (c) => {
   const path = c.req.path;
   if (path.startsWith("/api/") || path === "/api") return c.json({ error: "Not found" }, 404);
@@ -58,6 +63,7 @@ export async function boot() {
   if (await ensureVault()) console.log(`new vault at ${ROOT}/vault`);
   console.log(`indexed ${scan(true)} files`);
   startScanner();
+  startGateway();
   loadWeb();
 }
 

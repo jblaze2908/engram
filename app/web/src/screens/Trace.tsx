@@ -1,10 +1,12 @@
 import type { Provenance, TraceRow } from "../../../shared/types";
+import { useState } from "react";
 import { api, ApiError } from "../lib/api";
+import { useApp } from "../lib/app";
 import { useAgentList, useWho } from "../lib/directory";
 import { clock, shortDate, todayIso } from "../lib/format";
 import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
-import { Card, cx, Dot, Empty, ErrorNote, Lede, LinkBtn, Loading, Main, SearchField } from "../components/ui";
+import { Btn, Card, cx, Dot, Empty, ErrorNote, Lede, LinkBtn, Loading, Main, SearchField } from "../components/ui";
 
 const RESULTS: TraceRow["result"][] = ["ok", "refused", "held", "blocked", "error"];
 const resultColor = (r: TraceRow["result"]) => (r === "refused" || r === "blocked" ? "var(--signal)" : r === "error" ? "var(--bad)" : "var(--ink-2)");
@@ -90,7 +92,7 @@ export function Trace({ query }: { query: URLSearchParams }) {
         </Card>
 
         <Card className="p-6 flex flex-col">
-          {prov.data ? <Steps p={prov.data} /> : picked ? <RowDetail r={picked} /> : prov.loading && pid ? <Loading /> : (
+          {prov.data ? <Steps p={prov.data} /> : picked ? <RowDetail r={picked} onUndone={rows.reload} /> : prov.loading && pid ? <Loading /> : (
             <>
               <p className="text-[13px] text-ink-3">Where this came from</p>
               <p className="text-[13.5px] text-ink-2 mt-2 leading-relaxed">
@@ -104,8 +106,19 @@ export function Trace({ query }: { query: URLSearchParams }) {
   );
 }
 
-function RowDetail({ r }: { r: TraceRow }) {
+function RowDetail({ r, onUndone }: { r: TraceRow; onUndone: () => void }) {
   const who = useWho();
+  const { notify } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Only your accepts of a proposal can be undone; the server refuses anything that isn't an accepted memory.
+  const undoable = r.action === "accept" && r.who === "you" && r.target.startsWith("p_");
+  async function undo() {
+    if (!window.confirm("Undo this accept? The memory it added is forgotten, and the one it replaced comes back.")) return;
+    setBusy(true); setError(null);
+    try { const u = await api.undoAccept(r.target); notify(u.restored ? "Undone. The earlier memory is back." : "Undone."); onUndone(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
   return (
     <>
       <p className="text-[13px] text-ink-3">Call</p>
@@ -118,6 +131,8 @@ function RowDetail({ r }: { r: TraceRow }) {
         <div className="kv"><span>Result</span><span style={{ color: resultColor(r.result) }}>{r.result}</span></div>
         {r.detail && <div className="kv"><span>Detail</span><span>{r.detail}</span></div>}
       </div>
+      {error && <p role="alert" className="text-[13px] text-bad mt-4">{error}</p>}
+      {undoable && <div className="mt-auto pt-4"><Btn disabled={busy} onClick={undo}>Undo accept</Btn></div>}
     </>
   );
 }

@@ -59,7 +59,7 @@ export function toRecord(rel: string, src: string, mtime: number): Indexed | nul
     const sha = /^[a-f0-9]{64}$/.test(fm.sha256) ? fm.sha256 : null, ext = /^[a-z0-9]{1,5}$/.test(fm.ext) ? fm.ext : "bin";
     const kept = !!sha && existsSync(join(VAULT, "artifacts/files", `${sha}.${ext}`));
     const data = { id, title: str(fm.title, 200) || name, kind: str(fm.kind, 20) || "document", area: base.area, scope, source, mime: opt(fm.mime), size: typeof fm.size === "number" ? fm.size : null, sha256: sha, ext, kept, url: kept ? `/api/artifacts/${encodeURIComponent(id)}/file` : null, created_at: num(fm.created_at, mtime) };
-    return { ...base, id, kind: "artifact", title: data.title, scope, source_ref: source.ref ?? null, at: data.created_at, data };
+    return { ...base, id, kind: "artifact", title: data.title, scope, status: fm.status === "forgotten" ? "forgotten" : "active", source_ref: source.ref ?? null, at: data.created_at, data };
   }
   if (p[0] === "journal" && p.length === 5) {
     const id = str(fm.id, 60) || name, at = num(fm.at, mtime);

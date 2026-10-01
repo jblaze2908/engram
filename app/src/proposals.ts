@@ -11,6 +11,7 @@ import { indexPaths, sourceOf } from "./index.js";
 import { trace, YOU, type Actor } from "./trace.js";
 import { canPropose, readScopes } from "./agents.js";
 import { memoryById, areaExists, docById, docData } from "./store.js";
+import { decideToolChange } from "./gateway/store.js";
 
 export type ProposeInput = {
   kind: ProposalKind | "episode"; text?: string; title?: string; name?: string; summary?: string; description?: string; body?: string;
@@ -36,12 +37,12 @@ export function toProposal(r: Row): Proposal {
 }
 export const listProposals = (status = "open") => all("SELECT * FROM proposals WHERE status=? ORDER BY held DESC, created_at DESC LIMIT 500", status).map(toProposal);
 
-const memoryFm = (m: Omit<Memory, "text" | "reads">) => ({
+export const memoryFm = (m: Omit<Memory, "text" | "reads">) => ({
   id: m.id, area: m.area, project: m.project ?? null, entities: m.entities, scope: m.scope, source: m.source, status: m.status,
   observed_at: m.observed_at, valid_from: m.valid_from ?? null, valid_until: m.valid_until ?? null,
   supersedes: m.supersedes ?? null, superseded_by: m.superseded_by ?? null, created_at: m.created_at, accepted_at: m.accepted_at ?? null,
 });
-const memoryPath = (m: { id: string; created_at: number }) => { const [y, mo] = ym(m.created_at); return `memories/${y}/${mo}/${m.id}.md`; };
+export const memoryPath = (m: { id: string; created_at: number }) => { const [y, mo] = ym(m.created_at); return `memories/${y}/${mo}/${m.id}.md`; };
 
 function refuse(who: Actor, action: string, target: string, scope: Scope | null, msg: string, result: "refused" | "blocked" = "refused"): never {
   trace(who, action, target, result, scope, msg);
@@ -181,6 +182,7 @@ export function decide(id: string, decision: Decision, who: Actor = YOU) {
     if (!r) throw httpErr(404, "No such proposal");
     if (r.status !== "open") throw httpErr(409, "Already decided");
     const p = toProposal(r), t = now();
+    if (p.kind === "tool_change") { decideToolChange(p, decision, who); return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!); }
     if (decision === "accept") {
       const { paths, msg } = write(p, t);
       await commit(paths, msg);

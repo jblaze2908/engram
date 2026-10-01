@@ -107,7 +107,7 @@ function Screen({ route }: { route: Route }) {
     case "status": return <Status />;
     case "inbox": return <Inbox id={b} />;
     case "trace": return <Trace query={q} />;
-    case "connections": return <Connections id={b} />;
+    case "connections": return <Connections id={b} query={q} />;
     case "skills": return <Skills name={b} />;
     case "agents": return <Agents id={b} />;
     case "context":

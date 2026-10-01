@@ -13,9 +13,9 @@ const readsFor = (ids: string[]) => ids.length
   : new Map<string, number>();
 export function memories(rows: Row[]): Memory[] {
   const reads = readsFor(rows.map((r) => r.id));
-  return rows.map((r) => ({ ...json<Memory>(r.data, {}), reads: reads.get(r.id) || 0 }));
+  return rows.map((r) => ({ ...json<Memory>(r.data, {}), ...(r.path ? { path: r.path } : {}), reads: reads.get(r.id) || 0 }));
 }
-export const memoryById = (id: string) => { const r = one("SELECT id,data FROM docs WHERE id=? AND kind='memory'", id); return r ? memories([r])[0] : null; };
+export const memoryById = (id: string) => { const r = one("SELECT id,path,data FROM docs WHERE id=? AND kind='memory'", id); return r ? memories([r])[0] : null; };
 
 export function listMemories(f: { status?: string; area?: string; ids?: string[]; entity?: string; scopes?: Scope[]; limit?: number }) {
   const where = ["d.kind='memory'"], args: (string | number)[] = [];
@@ -24,7 +24,7 @@ export function listMemories(f: { status?: string; area?: string; ids?: string[]
   if (f.ids) { where.push(`d.id IN (${marks(f.ids.length) || "''"})`); args.push(...f.ids); }
   if (f.entity) { where.push("EXISTS (SELECT 1 FROM json_each(d.data,'$.entities') e WHERE e.value=?)"); args.push(f.entity); }
   if (f.scopes) { where.push(`d.scope IN (${marks(f.scopes.length) || "''"})`); args.push(...f.scopes); }
-  return memories(all(`SELECT d.id, d.data FROM docs d WHERE ${where.join(" AND ")} ORDER BY d.at DESC LIMIT ?`, ...args, f.limit ?? 200));
+  return memories(all(`SELECT d.id, d.path, d.data FROM docs d WHERE ${where.join(" AND ")} ORDER BY d.at DESC LIMIT ?`, ...args, f.limit ?? 200));
 }
 
 export function entities(rows: Row[]): Entity[] {
@@ -47,14 +47,14 @@ export function artifacts(rows: Row[]): Artifact[] {
   const mems = new Map<string, string[]>();
   if (rows.length) for (const m of all<{ id: string; ref: string }>(`SELECT id, source_ref ref FROM docs WHERE kind='memory' AND source_ref IN (${marks(rows.length)})`, ...rows.map((r) => r.id)))
     mems.set(m.ref, [...(mems.get(m.ref) || []), m.id]);
-  return rows.map((r) => { const a = json<Artifact & { ext?: string }>(r.data, {}); delete a.ext; return { ...a, memories: mems.get(r.id) || [] }; });
+  return rows.map((r) => { const a = json<Artifact & { ext?: string }>(r.data, {}); delete a.ext; return { ...a, ...(r.path ? { path: r.path } : {}), memories: mems.get(r.id) || [] }; });
 }
 export function listArtifacts(f: { kind?: string; area?: string; scopes?: Scope[] } = {}) {
-  const where = ["kind='artifact'"], args: string[] = [];
+  const where = ["kind='artifact'", "status='active'"], args: string[] = [];
   if (f.kind) { where.push("json_extract(data,'$.kind')=?"); args.push(f.kind); }
   if (f.area) { where.push("area=?"); args.push(f.area); }
   if (f.scopes) { where.push(`scope IN (${marks(f.scopes.length) || "''"})`); args.push(...f.scopes); }
-  return artifacts(all(`SELECT id, data FROM docs WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT 500`, ...args));
+  return artifacts(all(`SELECT id, path, data FROM docs WHERE ${where.join(" AND ")} ORDER BY at DESC LIMIT 500`, ...args));
 }
 
 export const episodes = (where: string, ...args: (string | number)[]) =>

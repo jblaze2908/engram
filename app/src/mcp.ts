@@ -13,6 +13,7 @@ import { search, SEARCHABLE } from "./search.js";
 import { propose } from "./proposals.js";
 import { compile, entityView } from "./views.js";
 import * as S from "./store.js";
+import { registerUpstream, toolHits } from "./gateway/mcp.js";
 
 const text = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v) }] });
 const fail = (msg: string) => ({ isError: true, content: [{ type: "text" as const, text: msg }] });
@@ -21,7 +22,7 @@ const errMsg = (e: unknown) => { const err = e as HttpError; if (!err.status || 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,59}$/);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const Search = z.object({
-  query: z.string().min(1).max(500), kind: z.enum(SEARCHABLE).optional(), area: slug.optional(), project: slug.optional(),
+  query: z.string().min(1).max(500), kind: z.enum([...SEARCHABLE, "tool"]).optional(), area: slug.optional(), project: slug.optional(),
   limit: z.number().int().min(1).max(50).optional(),
 });
 const Get = z.object({ id: z.string().min(1).max(120) });
@@ -50,7 +51,7 @@ function recordReads(agent: Agent, ids: string[]) {
 
 function getRecord(agent: Agent, who: Actor, scopes: Scope[], id: string) {
   const doc = S.docById(id);
-  if (!doc || doc.kind === "area" || doc.kind === "project" || (doc.kind === "memory" && doc.status === "forgotten")) { trace(who, "get", id, "error", null, "not found"); return fail("Not found"); }
+  if (!doc || doc.kind === "area" || doc.kind === "project" || doc.status === "forgotten") { trace(who, "get", id, "error", null, "not found"); return fail("Not found"); }
   if (!scopes.includes(doc.scope)) { trace(who, "get", id, "refused", doc.scope, "outside read grants"); return fail("Outside this agent's read grants"); }
   let rec: unknown, read: string[] = [];
   if (doc.kind === "memory") { rec = S.memoryById(id); read = [id]; }
@@ -67,8 +68,9 @@ function server(agent: Agent) {
   const who: Actor = { id: agent.id, name: agent.name }, scopes = readScopes(agent);
   const s = new McpServer({ name: "engram", version: "0.1.0" });
   s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, skills, profile.", inputSchema: Search }, (a) => {
-    const { hits, withheld } = search({ ...a, scopes });
+    const { hits, withheld } = a.kind === "tool" ? { hits: [], withheld: 0 } : search({ ...a, kind: a.kind as Exclude<typeof a.kind, "tool">, scopes });
     recordReads(agent, hits.filter((h) => h.kind === "memory").map((h) => h.id));
+    if (!a.kind || a.kind === "tool") (hits as unknown[]).push(...toolHits(agent, a.query, a.limit ?? 10));
     trace(who, "search", a.query.slice(0, 80), "ok", null, `${hits.length} hits${withheld ? `, ${withheld} withheld` : ""}`);
     return text({ hits });
   });
@@ -81,6 +83,7 @@ function server(agent: Agent) {
     trace(who, "profile", agent.profile, "ok", null, `${p.lines} lines`);
     return text({ target: p.target, text: p.text, lines: p.lines });
   });
+  registerUpstream(s, agent, who);
   return s;
 }
 
