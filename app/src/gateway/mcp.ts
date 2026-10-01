@@ -60,7 +60,8 @@ async function proxy(agent: Agent, who: Actor, t: Granted, args: Record<string, 
     trace(who, "tool", name, "error", null, `${shape} · failed`);
     return fail(msg);
   }
-  const out: Record<string, any> = { content: Array.isArray(res.content) ? res.content : [], ...(res.isError ? { isError: true } : {}) };
+  // structuredContent passes through so scripts calling upstream tools keep typed results.
+  const out: Record<string, any> = { content: Array.isArray(res.content) ? res.content : [], ...(res.structuredContent && typeof res.structuredContent === "object" ? { structuredContent: res.structuredContent } : {}), ...(res.isError ? { isError: true } : {}) };
   const size = Buffer.byteLength(JSON.stringify(out));
   if (size > MAX_RESULT) { trace(who, "tool", name, "refused", null, `${shape} · result ${size} bytes`); return fail(`${t.conn_name} returned more than 1 MB; narrow the request`); }
   if (t.untrusted) {

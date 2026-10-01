@@ -15,7 +15,8 @@ import { compile, entityView } from "./views.js";
 import * as S from "./store.js";
 import { registerUpstream, toolHits } from "./gateway/mcp.js";
 
-const text = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v) }] });
+// structuredContent lets client-side Code Mode (Pi, programmatic tool calling) get typed values; content keeps plain clients working.
+const text = (v: Record<string, unknown>) => ({ content: [{ type: "text" as const, text: JSON.stringify(v) }], structuredContent: v });
 const fail = (msg: string) => ({ isError: true, content: [{ type: "text" as const, text: msg }] });
 const errMsg = (e: unknown) => { const err = e as HttpError; if (!err.status || err.status >= 500) console.error("mcp tool failed:", err.message); return err.status && err.status < 500 ? err.message : "Engram couldn't do that"; };
 
@@ -26,6 +27,11 @@ const Search = z.object({
   limit: z.number().int().min(1).max(50).optional(),
 });
 const Get = z.object({ id: z.string().min(1).max(120) });
+const Hit = z.object({ kind: z.string(), id: z.string(), title: z.string(), snippet: z.string().optional(), area: z.string().optional(), scope: z.string().optional(), valid_until: z.string().nullish() }).passthrough();
+const SearchOut = z.object({ hits: z.array(Hit) });
+const GetOut = z.object({ kind: z.string(), record: z.unknown() });
+const ProposeOut = z.object({ status: z.string(), id: z.string().nullable().optional(), reasons: z.array(z.string()) }).passthrough();
+const ProfileOut = z.object({ target: z.string(), text: z.string(), lines: z.number() });
 const Propose = z.object({
   kind: z.enum(["memory", "entity", "artifact", "skill", "episode"]),
   text: z.string().max(4000).optional().describe("memory or episode: the claim, or what happened"),
@@ -67,18 +73,18 @@ function getRecord(agent: Agent, who: Actor, scopes: Scope[], id: string) {
 function server(agent: Agent) {
   const who: Actor = { id: agent.id, name: agent.name }, scopes = readScopes(agent);
   const s = new McpServer({ name: "engram", version: "0.1.0" });
-  s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, skills, profile.", inputSchema: Search }, (a) => {
+  s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, skills, profile.", inputSchema: Search, outputSchema: SearchOut }, (a) => {
     const { hits, withheld } = a.kind === "tool" ? { hits: [], withheld: 0 } : search({ ...a, kind: a.kind as Exclude<typeof a.kind, "tool">, scopes });
     recordReads(agent, hits.filter((h) => h.kind === "memory").map((h) => h.id));
     if (!a.kind || a.kind === "tool") (hits as unknown[]).push(...toolHits(agent, a.query, a.limit ?? 10));
     trace(who, "search", a.query.slice(0, 80), "ok", null, `${hits.length} hits${withheld ? `, ${withheld} withheld` : ""}`);
     return text({ hits });
   });
-  s.registerTool("get", { description: "Get one record by id, as returned by search.", inputSchema: Get }, (a) => getRecord(agent, who, scopes, a.id));
-  s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source.", inputSchema: Propose }, async (a) => {
-    try { return text(await propose(agent, a)); } catch (e) { return fail(errMsg(e)); }
+  s.registerTool("get", { description: "Get one record by id, as returned by search.", inputSchema: Get, outputSchema: GetOut }, (a) => getRecord(agent, who, scopes, a.id));
+  s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source.", inputSchema: Propose, outputSchema: ProposeOut }, async (a) => {
+    try { return text(await propose(agent, a) as unknown as Record<string, unknown>); } catch (e) { return fail(errMsg(e)); }
   });
-  s.registerTool("profile", { description: "How the user works: the compiled profile for you, within your grants.", inputSchema: z.object({}) }, () => {
+  s.registerTool("profile", { description: "How the user works: the compiled profile for you, within your grants.", inputSchema: z.object({}), outputSchema: ProfileOut }, () => {
     const p = compile(agent.profile, scopes);
     trace(who, "profile", agent.profile, "ok", null, `${p.lines} lines`);
     return text({ target: p.target, text: p.text, lines: p.lines });

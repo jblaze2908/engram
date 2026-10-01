@@ -85,3 +85,13 @@ test("status and context screens build", async () => {
   assert.equal((await req("GET", "/api/artifacts/nope/file", undefined, { cookie })).status, 404);
   assert.deepEqual((await req("GET", "/api/connections", undefined, { cookie })).json, []);
 });
+
+test("M6: tools declare output schemas and return structuredContent (client-side Code Mode)", async () => {
+  const list = await mcp(narrow, "tools/list");
+  for (const t of list.msg.result.tools) assert.ok(t.outputSchema, `${t.name} has an outputSchema`);
+  const r = await mcp(narrow, "tools/call", { name: "search", arguments: { query: "membership" } });
+  const res = r.msg.result;
+  assert.deepEqual(res.structuredContent, JSON.parse(res.content[0].text), "structured and text results agree");
+  // D6 measurement input: what one agent's tools/list costs with only Engram's own tools.
+  console.log(`# measured tools/list: ${list.msg.result.tools.length} tools, ${Buffer.byteLength(JSON.stringify(list.msg.result.tools))} bytes`);
+});
