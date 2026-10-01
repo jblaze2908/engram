@@ -1,11 +1,14 @@
 # Engram: TypeScript + Hono server (web API + one MCP endpoint), React web app built by Vite.
 # The vault (markdown + git) and the SQLite index live under /srv/engram, mounted from the host.
 FROM node:22-bookworm-slim AS build
+# The tests commit to a temp vault, so the build stage needs git too.
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
-RUN npm run build && npm prune --omit=dev
+# Tests run against the build before the image exists, so a failing test rejects the deploy.
+RUN npm run build && npm test && npm prune --omit=dev
 
 FROM node:22-bookworm-slim
 # git: every vault write is a commit, so any change can be seen and undone.

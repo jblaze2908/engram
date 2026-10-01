@@ -10,7 +10,7 @@ and Code Mode (M6) come later; their screens show an honest empty state.
 - `app/src/` server (TypeScript, Hono, node:sqlite, MCP TS SDK v2). Entry `app/src/server.ts`, port `PORT` (8340).
 - `app/shared/types.ts` the API contract. Change it here first.
 - `app/web/` React 19 + Vite 8 + Tailwind 4 web app, built into `app/dist/web`, served by the server at `/`.
-- `tests/*.test.mjs` node:test against `app/dist/src/*.js`.
+- `app/tests/*.test.mjs` node:test against `app/dist/src/*.js`; they also run in the Docker build, so a failure blocks the deploy.
 - `deploy/` pull-based deploy on the host, same shape as Pitcrew.
 
 ## Data

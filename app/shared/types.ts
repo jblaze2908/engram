@@ -84,6 +84,7 @@ export interface Provenance { memory: Memory; steps: { at: number | null; text: 
 
 // ---------- screens ----------
 
+/** `setup` is true once a password exists; the web app shows Setup while it is false. */
 export interface Session { setup: boolean; authed: boolean }
 export interface Status {
   up_since: number; calls_today: number; refused_today: number; calls_by_hour: number[];
