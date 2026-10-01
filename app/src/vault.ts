@@ -45,6 +45,9 @@ export function withVault<T>(fn: () => Promise<T> | T): Promise<T> {
   return next;
 }
 
+// Run after every commit (vault sync's debounced push); listeners must not throw or do I/O inline.
+export const afterCommit: (() => void)[] = [];
+
 export async function commit(paths: string[], message: string) {
   const msg = message.replace(/\s+/g, " ").trim().slice(0, 100) || "update";
   await git("add", "--", ...paths);
@@ -52,6 +55,7 @@ export async function commit(paths: string[], message: string) {
     // A write that left the file byte-identical has nothing to commit; that's not a failure.
     if (!/nothing (added )?to commit|no changes added/.test(String((e as { stdout?: string }).stdout || ""))) throw e;
   }
+  for (const f of afterCommit) f();
 }
 
 const AREAS: [string, string][] = [["home", "Home"], ["money", "Money"], ["health", "Health"], ["car", "Car"], ["travel", "Travel"], ["building", "Building"]];

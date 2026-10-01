@@ -11,6 +11,8 @@ import { indexPaths, sourceOf } from "./index.js";
 import { trace, YOU, type Actor } from "./trace.js";
 import { canPropose, readScopes } from "./agents.js";
 import { memoryById, areaExists, docById, docData } from "./store.js";
+import { proposed } from "./notify.js";
+import { useRemoteVersion } from "./vaultsync.js";
 
 export type ProposeInput = {
   kind: ProposalKind | "episode"; text?: string; title?: string; name?: string; summary?: string; description?: string; body?: string;
@@ -36,12 +38,12 @@ export function toProposal(r: Row): Proposal {
 }
 export const listProposals = (status = "open") => all("SELECT * FROM proposals WHERE status=? ORDER BY held DESC, created_at DESC LIMIT 500", status).map(toProposal);
 
-const memoryFm = (m: Omit<Memory, "text" | "reads">) => ({
+export const memoryFm = (m: Omit<Memory, "text" | "reads">) => ({
   id: m.id, area: m.area, project: m.project ?? null, entities: m.entities, scope: m.scope, source: m.source, status: m.status,
   observed_at: m.observed_at, valid_from: m.valid_from ?? null, valid_until: m.valid_until ?? null,
   supersedes: m.supersedes ?? null, superseded_by: m.superseded_by ?? null, created_at: m.created_at, accepted_at: m.accepted_at ?? null,
 });
-const memoryPath = (m: { id: string; created_at: number }) => { const [y, mo] = ym(m.created_at); return `memories/${y}/${mo}/${m.id}.md`; };
+export const memoryPath = (m: { id: string; created_at: number }) => { const [y, mo] = ym(m.created_at); return `memories/${y}/${mo}/${m.id}.md`; };
 
 function refuse(who: Actor, action: string, target: string, scope: Scope | null, msg: string, result: "refused" | "blocked" = "refused"): never {
   trace(who, action, target, result, scope, msg);
@@ -135,11 +137,13 @@ async function proposeLocked(agent: Agent, input: ProposeInput): Promise<Propose
   run("INSERT INTO proposals(id,kind,agent,title,scope,area,data,norm,source,source_ref,reasons,held,replaces,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     id, input.kind, agent.name, title, scope, area, JSON.stringify(data), key, JSON.stringify(source), source.ref ?? null, JSON.stringify(reasons), held ? 1 : 0, JSON.stringify(replaces), "open", t);
   trace(who, "propose", id, held ? "held" : "ok", scope, `${input.kind}: ${short(title)}`);
+  proposed();
   return { status: held ? "held" : "open", id, reasons };
 }
 
 // Writes the accepted record; returns the vault paths it touched and the commit message.
 function write(p: Proposal, t: number): { paths: string[]; msg: string } {
+  if (p.kind === "vault_conflict") return useRemoteVersion(p);
   const d = p.data as Record<string, any>;
   if (p.kind === "memory") {
     const m = { ...(d as Memory), accepted_at: t }, paths = [memoryPath(m)];

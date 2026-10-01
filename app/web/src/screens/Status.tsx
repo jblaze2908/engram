@@ -42,7 +42,7 @@ export function Status() {
             <Stat ok={s.last_backup !== null} warn={s.last_backup === null} label="Backup" big={when(s.last_backup)}
               small={s.last_backup ? "Encrypted copy of the vault" : "Backups start once the vault has something in it"} />
             <Stat ok={s.pitcrew_linked} label="Pitcrew" big={s.pitcrew_linked ? "Linked" : "Not linked"}
-              small={s.pitcrew_linked ? "Inbox and digest mirrored" : "Arrives with milestone M3"} />
+              small={s.pitcrew_linked ? "Inbox and digest mirrored" : "Link it in Agents"} />
           </div>
 
           <div className="grid grid-cols-1 wide:grid-cols-[1fr_400px] gap-3 mt-3 flex-1 min-h-0">
@@ -54,7 +54,7 @@ export function Status() {
                   <div key={i} className="rw">
                     <Dot color={a.level === "signal" ? "var(--signal)" : "var(--warn)"} />
                     <div className="flex-1 min-w-0"><p>{a.title}</p><p className="text-[12.5px] text-ink-3 mt-0.5">{a.detail}</p></div>
-                    <LinkBtn href={a.href}>{a.action}</LinkBtn>
+                    <LinkBtn href={a.href.startsWith("/") ? `#${a.href}` : a.href}>{a.action}</LinkBtn>
                   </div>
                 ))}
               </Card>
@@ -84,6 +84,13 @@ export function Status() {
                 )}
               </Card>
               <Card className="p-5 flex items-center justify-between gap-3 wide:mt-auto">
+                <div>
+                  <p className="text-[15px] font-medium">Your week</p>
+                  <p className="text-[12.5px] text-ink-3 mt-0.5">What’s waiting, what runs out, and open loops. Written Sundays at 19:00.</p>
+                </div>
+                <LinkBtn href="#/digest">Digest</LinkBtn>
+              </Card>
+              <Card className="p-5 flex items-center justify-between gap-3">
                 <div>
                   <p className="text-[15px] font-medium">{s.inbox.open + s.inbox.held ? `${num(s.inbox.open + s.inbox.held)} waiting in your inbox` : "Your inbox is empty"}</p>
                   <p className="text-[12.5px] text-ink-3 mt-0.5">{s.inbox.held ? `${num(s.inbox.held)} held from untrusted content` : "Agents’ proposals land there."}</p>

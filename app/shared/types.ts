@@ -66,7 +66,8 @@ export interface Agent {
 /** Returned once when a token is created or rotated; only its hash is stored. */
 export interface NewToken { agent: Agent; token: string }
 
-export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change";
+/** vault_conflict: Obsidian and Engram both changed a vault file (vault sync); accept takes the Obsidian version. */
+export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change" | "vault_conflict";
 export interface Proposal {
   id: string; kind: ProposalKind; agent: string | null; title: string; scope: Scope; area: string;
   /** The proposed record as it would be stored. */

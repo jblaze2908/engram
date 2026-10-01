@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Engram off-site backup
+
+[Timer]
+# After Tijori's 03:30 run, so the two never share the Drive upload.
+OnCalendar=*-*-* 04:15:00 Asia/Kolkata
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -12,6 +12,9 @@ import { scan, startScanner } from "./index.js";
 import { ensureMasterKey, ensureSetupToken } from "./auth.js";
 import { api } from "./api.js";
 import { mcpRoute } from "./mcp.js";
+import { link } from "./routes/link.js";
+import { startJobs } from "./jobs.js";
+import { startVaultSync } from "./vaultsync.js";
 
 const WEB = new URL("../web/", import.meta.url).pathname;
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -43,6 +46,7 @@ app.onError((e: HttpError, c) => {
 });
 app.get("/healthz", (c) => c.json({ ok: true }));
 app.all("/mcp", mcpRoute);
+app.route("/", link);
 app.route("/", api);
 app.get("*", (c) => {
   const path = c.req.path;
@@ -58,6 +62,8 @@ export async function boot() {
   if (await ensureVault()) console.log(`new vault at ${ROOT}/vault`);
   console.log(`indexed ${scan(true)} files`);
   startScanner();
+  startJobs();
+  startVaultSync();
   loadWeb();
 }
 

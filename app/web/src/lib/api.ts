@@ -1,5 +1,5 @@
 import type {
-  Agent, AreaView, Artifact, ArtifactKind, CompiledProfile, Connection, ContextHome, Decision, Entity, EntityKind,
+  Agent, AreaView, Artifact, ArtifactKind, CompiledProfile, Connection, ContextHome, Decision, Digest, Entity, EntityKind,
   EntityView, Grant, JournalView, Memory, MemoryStatus, NewToken, ProfileFile, ProfileTarget, Proposal, Provenance,
   Scope, Session, Skill, Status, TraceRow,
 } from "../../../shared/types";
@@ -95,6 +95,9 @@ export const api = {
     request<Agent>("PATCH", `/api/agents/${enc(id)}`, patch),
   newToken: (id: string) => request<NewToken>("POST", `/api/agents/${enc(id)}/token`),
   revoke: (id: string) => request<unknown>("POST", `/api/agents/${enc(id)}/revoke`),
+  linkPitcrew: () => request<NewToken>("POST", "/api/link"),
+  digest: (week?: string) => request<Digest>("GET", `/api/digest${qs({ week })}`),
+  digestWeeks: () => request<string[]>("GET", "/api/digest/weeks"),
 
   trace: (f: { who?: string; result?: TraceRow["result"]; day?: string } = {}) =>
     request<TraceRow[]>("GET", `/api/trace${qs(f)}`),

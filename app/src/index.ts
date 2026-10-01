@@ -9,6 +9,7 @@ import { all, run, tx, setSetting } from "./db.js";
 import { parseDoc } from "./vault.js";
 import { pruneTrace } from "./trace.js";
 
+export const CONFLICT = /\.conflict-\d+\.md$/;
 const STATUSES: MemoryStatus[] = ["active", "superseded", "held", "forgotten"];
 const SOURCE_KINDS: SourceKind[] = ["you", "agent", "email", "web", "file", "calendar", "other"];
 const str = (v: unknown, max = 2000) => (typeof v === "string" ? v.slice(0, max) : v == null ? "" : String(v).slice(0, max));
@@ -79,7 +80,8 @@ function* walk(dir: string): Generator<string> {
     if (e.isSymbolicLink()) continue;
     const p = join(dir, e.name), rel = relative(VAULT, p);
     if (e.isDirectory()) { if (e.name !== ".git" && rel !== join("artifacts", "files")) yield* walk(p); }
-    else if (e.isFile() && e.name.endsWith(".md")) yield rel.split("\\").join("/");
+    // A vault-sync conflict copy carries the original's id; indexing it would shadow the real record.
+    else if (e.isFile() && e.name.endsWith(".md") && !CONFLICT.test(e.name)) yield rel.split("\\").join("/");
   }
 }
 
