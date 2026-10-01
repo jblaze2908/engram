@@ -3,6 +3,7 @@ import { useAgentList, useAreaName, useWho } from "../lib/directory";
 import { shortDate } from "../lib/format";
 import { href } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
+import { obsidianUrl } from "../lib/obsidian";
 import { BackLink, Card, CardHead, Dot, Empty, ErrorNote, H1, Lede, Lines, LinkBtn, ListPane, Loading, Main, Split } from "../components/ui";
 
 export function Skills({ name }: { name?: string }) {
@@ -55,7 +56,10 @@ function SkillDetail({ name }: { name: string }) {
   return (
     <>
       <BackLink href="#/skills" label="Skills" />
-      <p className="text-[13px] text-ink-3">Skill · {areaName(s.area)} · v{s.version}, updated {shortDate(s.updated_at)}</p>
+      <p className="text-[13px] text-ink-3 flex items-center gap-3 flex-wrap">
+        <span>Skill · {areaName(s.area)} · v{s.version}, updated {shortDate(s.updated_at)}</span>
+        <a className="ml-auto hover:text-ink-2" href={obsidianUrl(`skills/${s.name}/SKILL.md`)}>Open in Obsidian</a>
+      </p>
       <H1 className="mt-3">{s.name}</H1>
       <Lede>{s.description || "No description yet. Agents decide when to load a skill from its description, so write one."}</Lede>
       {s.pending > 0 && (

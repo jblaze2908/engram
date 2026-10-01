@@ -7,6 +7,7 @@ import { ago, shortDate } from "../lib/format";
 import { AGENT_KIND_LABEL, hueColor, SCOPE_LABEL, TARGET_LABEL, TARGETS } from "../lib/labels";
 import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
+import { ToolPicker } from "../components/ToolPicker";
 import { BackLink, Btn, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, Split, Toggle } from "../components/ui";
 import { LinkPitcrew, LinkReveal } from "./LinkPitcrew";
 
@@ -31,8 +32,9 @@ function grantSummary(a: Agent): string {
   const read = a.grants.filter((g) => g.read && g.scope !== "private").map((g) => g.scope);
   if (a.revoked) return "revoked";
   if (a.link) return "the Pitcrew link";
-  if (read.length === 0) return "no grants yet";
-  return read.length === 1 ? `${read[0]} only` : read.join(", ");
+  const conns = [...new Set((a.tools ?? []).map((t) => t.split("/")[0]))];
+  if (read.length === 0) return conns.length ? conns.join(", ") : "no grants yet";
+  return (read.length === 1 && !conns.length ? `${read[0]} only` : read.join(", ")) + (conns.length ? ` · ${conns.join(", ")}` : "");
 }
 
 export function Agents({ id }: { id?: string }) {
@@ -219,10 +221,7 @@ function AgentDetail({ a, onChanged, onToken }: { a: Agent; onChanged: (a?: Agen
             <div className="kv"><span>Token</span><span className="font-mono text-[12px]">{a.token_prefix}…</span></div>
             <div className="kv"><span>Profile it gets</span><a className="hover:text-ink-2" href={href(["context", "profile"], { target: a.profile })}>{TARGET_LABEL[a.profile]}</a></div>
           </Card>
-          <Card>
-            <CardHead left="Upstream tools" />
-            <p className="px-[18px] pb-4 text-[13px] text-ink-2 leading-relaxed">The gateway arrives next (M2). Then you choose which Gmail, GitHub or Drive tools {a.name} may call.</p>
-          </Card>
+          <ToolPicker a={a} onChanged={onChanged} />
         </div>
       </div>
     </>

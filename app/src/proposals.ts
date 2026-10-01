@@ -13,6 +13,7 @@ import { canPropose, readScopes } from "./agents.js";
 import { memoryById, areaExists, docById, docData } from "./store.js";
 import { proposed } from "./notify.js";
 import { useRemoteVersion } from "./vaultsync.js";
+import { decideToolChange } from "./gateway/store.js";
 
 export type ProposeInput = {
   kind: ProposalKind | "episode"; text?: string; title?: string; name?: string; summary?: string; description?: string; body?: string;
@@ -185,6 +186,7 @@ export function decide(id: string, decision: Decision, who: Actor = YOU) {
     if (!r) throw httpErr(404, "No such proposal");
     if (r.status !== "open") throw httpErr(409, "Already decided");
     const p = toProposal(r), t = now();
+    if (p.kind === "tool_change") { decideToolChange(p, decision, who); return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!); }
     if (decision === "accept") {
       const { paths, msg } = write(p, t);
       await commit(paths, msg);

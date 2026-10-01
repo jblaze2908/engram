@@ -5,6 +5,7 @@ import { SCOPE_LABEL, TARGET_LABEL, TARGETS } from "../lib/labels";
 import { href } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { BackLink, Breadcrumb, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, Lines, ListPane, Loading, Main, Split } from "../components/ui";
+import { obsidianUrl } from "../lib/obsidian";
 
 export function Profile({ query }: { query: URLSearchParams }) {
   const load = useLoad(() => api.profile(), []);
@@ -55,7 +56,7 @@ export function Profile({ query }: { query: URLSearchParams }) {
                   <H1 className="mt-6">{file.name}</H1>
                   <Lede>{SCOPE_LABEL[file.scope]} scope · {num(file.lines)} lines. Only agents with a {file.scope} read grant get this part.</Lede>
                   <Card className="mt-6 overflow-hidden">
-                    <CardHead left={file.name} right={<span className="font-mono text-[11.5px]">{file.lines} lines</span>} />
+                    <CardHead left={file.name} right={<span className="flex gap-3"><a className="hover:text-ink-2" href={obsidianUrl(`profile/${file.name}.md`)}>Open in Obsidian</a><span className="font-mono text-[11.5px]">{file.lines} lines</span></span>} />
                     {file.body.trim() ? <Lines text={file.body} /> : <Empty>This file is empty. Write in it from the vault and Engram picks it up.</Empty>}
                   </Card>
                 </>

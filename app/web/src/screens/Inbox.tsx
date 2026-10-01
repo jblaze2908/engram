@@ -9,6 +9,7 @@ import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { usePhone } from "../lib/useMedia";
 import { BackLink, Btn, Card, cx, Dot, Empty, ErrorNote, H1, ListPane, Loading, Logo, Main, Split } from "../components/ui";
+import { LinkToProfile, ToolChangeDetail } from "../components/InboxExtras";
 
 const EMPTY_TITLE = "Nothing waiting. Agents’ proposals land here.";
 const EMPTY_BODY = "When an agent wants to add or change a memory, a person, a file or a skill, it waits here until you decide. Anything read from an email or a web page is held, with the reasons spelled out.";
@@ -50,23 +51,26 @@ function useDecide(list: Proposal[], reload: () => void) {
   const { refreshInbox, notify } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  function done(p: Proposal, msg: string) {
+    notify(msg);
+    const i = list.findIndex((x) => x.id === p.id);
+    const next = list[i + 1] ?? list[i - 1];
+    navigate(next ? href(["inbox", next.id]) : href(["inbox"]));
+    reload();
+    refreshInbox();
+  }
   async function decide(p: Proposal, d: Decision) {
     setBusy(p.id); setError(null);
     try {
       await api.decide(p.id, d);
-      notify(DONE[d]);
-      const i = list.findIndex((x) => x.id === p.id);
-      const next = list[i + 1] ?? list[i - 1];
-      navigate(next ? href(["inbox", next.id]) : href(["inbox"]));
-      reload();
-      refreshInbox();
+      done(p, p.kind === "tool_change" ? (d === "accept" ? "Approved; agents can use it again." : "Kept blocked.") : DONE[d]);
     } catch (e) {
       // 409: already decided elsewhere (e.g. in Pitcrew); refresh so it drops out of the list.
       if (e instanceof ApiError && e.status === 409) { notify("Already decided elsewhere."); reload(); refreshInbox(); }
       else setError(e instanceof Error ? e.message : String(e));
     } finally { setBusy(null); }
   }
-  return { decide, busy, error };
+  return { decide, done, busy, error };
 }
 
 export function Inbox({ id }: { id?: string }) {
@@ -146,6 +150,11 @@ function Actions({ p, dec, phone }: { p: Proposal; dec: Dec; phone?: boolean }) 
 }
 
 function ProposalDetail({ p, dec }: { p: Proposal; dec: Dec }) {
+  if (p.kind === "tool_change") return <><BackLink href={href(["inbox"])} label="Inbox" /><ToolChangeDetail p={p} busy={dec.busy === p.id} error={dec.error} decide={(d) => dec.decide(p, d)} /></>;
+  return <RecordProposal p={p} dec={dec} />;
+}
+
+function RecordProposal({ p, dec }: { p: Proposal; dec: Dec }) {
   const who = useWho();
   const areaName = useAreaName();
   const by = p.agent ? who(p.agent).name : p.source.kind === "you" ? "You" : "An agent";
@@ -221,6 +230,7 @@ function ProposalDetail({ p, dec }: { p: Proposal; dec: Dec }) {
         <Actions p={p} dec={dec} />
         <span className="ml-auto text-[12.5px] text-ink-3">Everything you decide is in the trace.</span>
       </div>
+      {p.kind === "skill" && <LinkToProfile p={p} onDone={(msg) => dec.done(p, msg)} />}
     </>
   );
 }

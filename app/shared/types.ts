@@ -123,6 +123,12 @@ export interface ConnectionDetail extends Connection {
 }
 /** An agent's access to one upstream tool, written "<connection>/<tool>". Write tools are never granted by default. */
 export type ToolGrant = string;
+export interface NewConnection { name: string; url: string; auth: ConnectionAuth; untrusted: boolean; token?: string; client_id?: string; client_secret?: string }
+/** authorize_url is set when an OAuth connection needs you to sign in: open it, and the callback finishes the connect. */
+export interface ConnectResult { connection: ConnectionDetail; authorize_url: string | null }
+/** Vault path for "Open in Obsidian" (M1 leftover), merged into the interfaces above. */
+export interface Memory { path?: string }
+export interface Artifact { path?: string }
 
 // ---------- M3 Pitcrew link, M4 digest ----------
 

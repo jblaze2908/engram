@@ -15,7 +15,7 @@ export function ftsQuery(q: string) {
 export function search(f: { query: string; kind?: SearchKind; area?: string; project?: string; scopes?: Scope[]; limit?: number }) {
   const match = ftsQuery(f.query);
   if (!match) return { hits: [] as Hit[], withheld: 0 };
-  const where = ["docs_fts MATCH ?", `d.kind IN (${marks(SEARCHABLE.length)})`, "(d.kind!='memory' OR d.status='active')"], args: (string | number)[] = [match, ...SEARCHABLE];
+  const where = ["docs_fts MATCH ?", `d.kind IN (${marks(SEARCHABLE.length)})`, "d.status='active'"], args: (string | number)[] = [match, ...SEARCHABLE];
   if (f.kind) { where.push("d.kind=?"); args.push(f.kind); }
   if (f.area) { where.push("d.area=?"); args.push(f.area); }
   if (f.project) { where.push("d.project=?"); args.push(f.project); }

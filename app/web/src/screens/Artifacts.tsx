@@ -1,15 +1,18 @@
-import type { ArtifactKind, Memory } from "../../../shared/types";
+import { useState } from "react";
+import type { ArtifactKind } from "../../../shared/types";
 import { api } from "../lib/api";
+import { useApp } from "../lib/app";
+import { obsidianUrl } from "../lib/obsidian";
 import { useAgentList, useAreaName, useWho } from "../lib/directory";
 import { bytes, clock, shortDate } from "../lib/format";
 import { ARTIFACT_KIND_LABEL, fileTag, fromLabel, SCOPE_LABEL } from "../lib/labels";
-import { href } from "../lib/router";
+import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
-import { BackLink, Breadcrumb, Card, CardHead, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, Split } from "../components/ui";
+import { BackLink, Breadcrumb, Btn, Card, CardHead, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, Split } from "../components/ui";
 import { memoryDot } from "./Memories";
 
 const KINDS = Object.keys(ARTIFACT_KIND_LABEL) as ArtifactKind[];
-// The detail page shows the memories a file produced; cap the per-file fetches.
+// The detail page shows the memories a file produced, read in one batch call.
 const MAX_MEMORIES = 8;
 
 export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }) {
@@ -51,7 +54,7 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
       }
       detail={
         <Main>
-          {id ? <ArtifactDetail id={id} back={to({})} /> : (
+          {id ? <ArtifactDetail id={id} back={to({})} onForgotten={() => { list.reload(); navigate(to({})); }} /> : (
             <Empty title="Pick a file to see it and what came from it.">Each file links to the memories it produced, so you can forget a bad source in one go.</Empty>
           )}
         </Main>
@@ -59,14 +62,16 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
   );
 }
 
-function ArtifactDetail({ id, back }: { id: string; back: string }) {
+function ArtifactDetail({ id, back, onForgotten }: { id: string; back: string; onForgotten: () => void }) {
+  const { notify } = useApp();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const who = useWho();
   const areaName = useAreaName();
   const agents = useAgentList();
   const load = useLoad(async () => {
     const a = await api.artifact(id);
-    const memories = (await Promise.all(a.memories.slice(0, MAX_MEMORIES).map((m) => api.memory(m).catch(() => null))))
-      .filter((m): m is Memory => !!m);
+    const memories = a.memories.length ? await api.memoriesByIds(a.memories.slice(0, MAX_MEMORIES)) : [];
     return { a, memories };
   }, [id]);
   if (!load.data) return load.error ? <ErrorNote error={load.error} onRetry={load.reload} /> : <Loading />;
@@ -75,6 +80,14 @@ function ArtifactDetail({ id, back }: { id: string; back: string }) {
   const isImage = (a.mime ?? "").startsWith("image/");
   const readers = agents.filter((x) => !x.revoked && x.grants.some((g) => g.scope === a.scope && g.read)).map((x) => x.name);
   const by = a.source.agent ? who(a.source.agent).name : "You";
+
+  async function forget() {
+    const n = a.memories.length;
+    if (!window.confirm(`Forget this file${n ? ` and the ${n === 1 ? "memory" : `${n} memories`} taken from it` : ""}? Agents stop seeing them. The vault’s git history keeps the copy.`)) return;
+    setBusy(true); setError(null);
+    try { const r = await api.forgetArtifact(a.id); notify(`Forgot the file${r.memories ? ` and ${r.memories} ${r.memories === 1 ? "memory" : "memories"}` : ""}.`); onForgotten(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); setBusy(false); }
+  }
 
   return (
     <>
@@ -126,8 +139,11 @@ function ArtifactDetail({ id, back }: { id: string; back: string }) {
             <div className="kv"><span>Scope</span><span>{SCOPE_LABEL[a.scope]}</span></div>
             <div className="kv"><span>Who can see it</span><span>{a.scope === "private" ? "Only you" : readers.length ? readers.join(", ") : "No agent yet"}</span></div>
           </Card>
-          <div className="wide:mt-auto flex items-center gap-2">
+          {error && <p role="alert" className="text-[13px] text-bad">{error}</p>}
+          <div className="wide:mt-auto flex items-center gap-2 flex-wrap">
             <LinkBtn href={href(["trace"], { q: a.id })}>See trace</LinkBtn>
+            {a.path && <LinkBtn kind="quiet" href={obsidianUrl(a.path)}>Open in Obsidian</LinkBtn>}
+            <Btn kind="quiet" className="ml-auto" disabled={busy} onClick={forget}>Forget this file and its memories</Btn>
           </div>
         </div>
       </div>
