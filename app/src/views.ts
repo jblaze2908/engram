@@ -74,7 +74,8 @@ export function status(): Status {
     memories: count("SELECT COUNT(*) n FROM docs WHERE kind='memory' AND status='active'"),
     new_this_week: count("SELECT COUNT(*) n FROM docs WHERE kind='memory' AND status='active' AND at>=?", now() - 7 * DAY),
     last_index: lastIndex ? Number(lastIndex) : null, last_backup: null,
-    pitcrew_linked: agents.some((a) => a.kind === "pitcrew"), inbox: { open, held }, attention,
+    // Linking Pitcrew (mirrored inbox and digest) is milestone M3; a Pitcrew-kind agent token alone isn't a link.
+    pitcrew_linked: false, inbox: { open, held }, attention,
     agents: agents.map((a) => ({ id: a.id, name: a.name, hue: a.hue ?? null, last_used_at: a.last_used_at ?? null, calls_today: calls.get(a.id) || 0 })),
   };
 }
@@ -84,12 +85,13 @@ const firstLine = (body: string) => body.split("\n").map((l) => l.replace(/^[-*\
 export function contextHome(): ContextHome {
   const files = S.profileFiles(), weekAgo = now() - 7 * DAY;
   const soon = new Date(now() + 30 * DAY).toISOString().slice(0, 10);
-  const changed = all<{ at: number; who: string; action: string; result: string; detail: string | null }>(
-    "SELECT at, who, action, result, detail FROM trace WHERE at>=? AND (action IN ('accept','add','forget') OR result='refused') ORDER BY id DESC LIMIT 10", weekAgo)
-    .map((r) => ({
-      text: r.result === "refused" ? `Refused ${r.who}${r.detail ? `: ${r.detail}` : ""}` : `${{ accept: "Accepted", add: "Added", forget: "Forgot" }[r.action] || r.action}${r.detail ? `: ${r.detail}` : ""}`,
-      detail: `${r.who} · ${new Date(r.at).toISOString()}`, tone: (r.result === "refused" || r.action === "forget" ? "bad" : "normal") as "bad" | "normal",
-    }));
+  const day = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+  const changed = all<{ at: number; data: string; status: string }>("SELECT at, data, status FROM docs WHERE kind='memory' AND at>=? ORDER BY at DESC LIMIT 8", weekAgo)
+    .map((r) => {
+      const m = json<{ text: string; area: string; source: { kind: string; label: string } }>(r.data, { text: "", area: "", source: { kind: "other", label: "" } });
+      const who = m.source.kind === "you" ? "You" : m.source.label || m.source.kind;
+      return { text: r.status === "forgotten" ? `Forgot: ${m.text}` : m.text, detail: `${who} · ${day(r.at)} · ${S.areaRecord(m.area)?.name || m.area}`, tone: (r.status === "forgotten" ? "bad" : "normal") as "bad" | "normal" };
+    });
   return {
     you: { files: files.length, targets: TARGETS.length, lint: compiledForUi().reduce((n, c) => n + c.lint.length, 0), highlights: files.filter((f) => f.scope === "personal").map((f) => firstLine(f.body)).filter(Boolean).slice(0, 3) },
     areas: S.areas(), projects: S.projects(), changed,

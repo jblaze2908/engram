@@ -85,7 +85,7 @@ export function Status() {
               </Card>
               <Card className="p-5 flex items-center justify-between gap-3 wide:mt-auto">
                 <div>
-                  <p className="text-[15px] font-medium">{s.inbox.open ? `${num(s.inbox.open)} waiting in your inbox` : "Your inbox is empty"}</p>
+                  <p className="text-[15px] font-medium">{s.inbox.open + s.inbox.held ? `${num(s.inbox.open + s.inbox.held)} waiting in your inbox` : "Your inbox is empty"}</p>
                   <p className="text-[12.5px] text-ink-3 mt-0.5">{s.inbox.held ? `${num(s.inbox.held)} held from untrusted content` : "Agents’ proposals land there."}</p>
                 </div>
                 <LinkBtn kind="primary" href="#/inbox">Open inbox</LinkBtn>
