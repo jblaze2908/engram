@@ -1,0 +1,44 @@
+{
+  "name": "engram",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Engram: one self-hosted app that knows how Jai operates and is the single door every agent uses for context.",
+  "scripts": {
+    "build": "npm run build:server && npm run build:web",
+    "build:server": "tsc -p tsconfig.json",
+    "build:web": "vite build --config web/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
+    "dev:web": "vite --config web/vite.config.ts",
+    "start": "node dist/src/server.js"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "@modelcontextprotocol/hono": "2.0.1",
+    "@modelcontextprotocol/server": "2.1.0",
+    "hono": "4.13.9",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "22.20.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.1"
+  },
+  "overrides": {
+    "rolldown": "1.2.11",
+    "@oxc-project/types": "0.151.0",
+    "source-map-js": "1.2.1",
+    "enhanced-resolve": "5.25.1"
+  }
+}

@@ -1,0 +1,26 @@
+# Engram on the host. The image tag comes from the release env written by deploy/pull-update.sh (one tag per commit).
+name: engram
+services:
+  app:
+    image: engram-app:${ENGRAM_TAG:-1}
+    container_name: engram-app
+    restart: unless-stopped
+    user: "1600:1600"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    mem_limit: 768m
+    pids_limit: 256
+    ports:
+      - "172.17.0.1:8340:8340"
+    volumes:
+      # Vault (markdown + git), SQLite index, master key. Only this directory is writable.
+      - /srv/engram:/srv/engram
+    environment:
+      ENGRAM_HOST: engram.example.com
+      HOME: /srv/engram/home
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

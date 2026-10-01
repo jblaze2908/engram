@@ -1,0 +1,17 @@
+{
+  // Server and shared code. Compiles app/src → dist/src and app/shared → dist/shared, so the server's "../web/" still
+  // resolves to dist/web (the Vite build) and tests import the compiled files.
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "rootDir": ".",
+    "outDir": "dist",
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "shared/**/*.ts"]
+}
