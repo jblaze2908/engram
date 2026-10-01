@@ -18,6 +18,8 @@ services:
     volumes:
       # Vault (markdown + git), SQLite index, master key. Only this directory is writable.
       - /srv/engram:/srv/engram
+    # Root-only on the host: ntfy publish token, vault remote, public URL.
+    env_file: [/etc/engram/engram.env]
     environment:
       ENGRAM_HOST: engram.example.com
       HOME: /srv/engram/home

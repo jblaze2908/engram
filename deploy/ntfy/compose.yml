@@ -1,0 +1,24 @@
+# Self-hosted ntfy for Engram's phone notifications. Deny-all by default: Engram publishes with a token, your phone
+# subscribes as a read-only user. Installed by hand (see README); not part of Engram's pull-based deploy.
+name: ntfy
+services:
+  ntfy:
+    image: binwiederhier/ntfy:v2.28.0
+    container_name: ntfy
+    command: serve
+    restart: unless-stopped
+    user: "1601:1601"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    mem_limit: 256m
+    ports:
+      - "172.17.0.1:8350:80"
+    volumes:
+      - ./server.yml:/etc/ntfy/server.yml:ro
+      - /srv/ntfy:/var/lib/ntfy
+    environment:
+      TZ: Asia/Kolkata
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
