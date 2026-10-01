@@ -58,13 +58,15 @@ export interface Grant { scope: Scope; read: boolean; write: "none" | "propose" 
 export interface Agent {
   id: string; name: string; kind: "pitcrew" | "mac" | "other"; profile: ProfileTarget;
   /** Crew hue for Pitcrew members, else null. */
-  hue?: string | null; grants: Grant[]; skills: string[];
+  hue?: string | null; grants: Grant[]; skills: string[]; tools?: ToolGrant[];
+  /** May use the Pitcrew link API (one per install). */
+  link?: boolean;
   token_prefix: string; created_at: number; last_used_at?: number | null; revoked: boolean;
 }
 /** Returned once when a token is created or rotated; only its hash is stored. */
 export interface NewToken { agent: Agent; token: string }
 
-export type ProposalKind = "memory" | "entity" | "artifact" | "skill";
+export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change";
 export interface Proposal {
   id: string; kind: ProposalKind; agent: string | null; title: string; scope: Scope; area: string;
   /** The proposed record as it would be stored. */
@@ -108,3 +110,34 @@ export interface JournalView { days: JournalDay[]; day: string; entries: Episode
 
 /** Upstream MCP connections arrive with milestone M2 (the gateway); the API returns an empty list until then. */
 export interface Connection { id: string; name: string; status: "ok" | "warn" | "signal"; detail: string; tools: { name: string; kind: "read" | "write"; agents: string[]; pinned: boolean; changed: boolean }[] }
+
+// ---------- M2 gateway ----------
+
+/** How Engram signs in to an upstream MCP server. Credentials are stored encrypted (AES-256-GCM, master.key) and never leave the server. */
+export type ConnectionAuth = "oauth" | "bearer" | "none";
+export interface ConnectionTool { name: string; kind: "read" | "write"; description: string; agents: string[]; pinned: boolean; changed: boolean }
+export interface ConnectionDetail extends Connection {
+  url: string; auth: ConnectionAuth; untrusted: boolean; connected_at: number | null; refreshed_at: number | null;
+  tools: ConnectionTool[]; changes: { tool: string; approved: string; now: string }[];
+}
+/** An agent's access to one upstream tool, written "<connection>/<tool>". Write tools are never granted by default. */
+export type ToolGrant = string;
+
+// ---------- M3 Pitcrew link, M4 digest ----------
+
+/** What Pitcrew needs to mirror Engram: open proposals (never private scope) and the current digest. */
+export interface LinkInbox { proposals: Proposal[]; at: number }
+export interface Digest {
+  week: string; from: string; to: string; built_at: number;
+  waiting: { open: number; held: number };
+  runningOut: { date: string; text: string; area: string }[];
+  changed: { text: string; detail: string; tone: "normal" | "bad" }[];
+  openLoops: { text: string; area: string }[];
+  journal: { day: string; lines: string[] }[];
+}
+export interface LinkMember { pitcrew_id: string; name: string; hue?: string | null; area?: string | null }
+
+// ---------- M5 sync ----------
+
+/** What a Mac or Pitcrew agent writes to disk: the skills granted to it and its compiled profile block. */
+export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; version: number; body: string }[]; at: number }
