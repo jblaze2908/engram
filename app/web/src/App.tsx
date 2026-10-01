@@ -18,6 +18,7 @@ import { Trace } from "./screens/Trace";
 import { Connections } from "./screens/Connections";
 import { Skills } from "./screens/Skills";
 import { Agents } from "./screens/Agents";
+import { DigestPage } from "./screens/Digest";
 import { Empty, Main } from "./components/ui";
 
 type Gate = { k: "loading" } | { k: "setup" } | { k: "login" } | { k: "ready" } | { k: "down"; error: string };
@@ -110,6 +111,7 @@ function Screen({ route }: { route: Route }) {
     case "connections": return <Connections id={b} />;
     case "skills": return <Skills name={b} />;
     case "agents": return <Agents id={b} />;
+    case "digest": return <DigestPage week={q.get("week") ?? undefined} />;
     case "context":
       switch (b) {
         case undefined: return <ContextHome />;

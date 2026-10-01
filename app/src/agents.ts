@@ -15,7 +15,7 @@ function toAgent(r: Row): Agent {
   return {
     id: r.id, name: r.name, kind: r.kind, profile: r.profile, hue: r.hue ?? null, skills: json(r.skills, []),
     grants: GRANTABLE.map((s) => { const g = grants.find((x) => x.scope === s); return { scope: s, read: !!g?.read, write: g?.write || "none" }; }),
-    token_prefix: r.token_prefix, created_at: r.created_at, last_used_at: r.last_used_at ?? null, revoked: !!r.revoked,
+    token_prefix: r.token_prefix, created_at: r.created_at, last_used_at: r.last_used_at ?? null, revoked: !!r.revoked, link: !!r.link,
   };
 }
 export const listAgents = () => all("SELECT * FROM agents ORDER BY created_at").map(toAgent);

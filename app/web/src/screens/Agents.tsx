@@ -8,6 +8,7 @@ import { AGENT_KIND_LABEL, hueColor, SCOPE_LABEL, TARGET_LABEL, TARGETS } from "
 import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { BackLink, Btn, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, Split, Toggle } from "../components/ui";
+import { LinkPitcrew, LinkReveal } from "./LinkPitcrew";
 
 export const MCP_URL = "https://engram.example.com/mcp";
 
@@ -29,6 +30,7 @@ function normalise(grants: Grant[]): Grant[] {
 function grantSummary(a: Agent): string {
   const read = a.grants.filter((g) => g.read && g.scope !== "private").map((g) => g.scope);
   if (a.revoked) return "revoked";
+  if (a.link) return "the Pitcrew link";
   if (read.length === 0) return "no grants yet";
   return read.length === 1 ? `${read[0]} only` : read.join(", ");
 }
@@ -38,8 +40,9 @@ export function Agents({ id }: { id?: string }) {
   const [reveal, setReveal] = useState<NewToken | null>(null);
   useEffect(() => { if (reveal && reveal.agent.id !== id) setReveal(null); }, [id]);
   const list = load.data ?? [];
-  const adding = id === "new";
-  const picked = adding ? undefined : list.find((a) => a.id === id) ?? (id ? undefined : list[0]);
+  const adding = id === "new", linking = id === "link";
+  const linked = list.some((a) => a.link && !a.revoked);
+  const picked = adding || linking ? undefined : list.find((a) => a.id === id) ?? (id ? undefined : list[0]);
 
   const changed = (a?: Agent) => {
     invalidateAgents();
@@ -57,7 +60,10 @@ export function Agents({ id }: { id?: string }) {
     <Split picked={!!id}
       list={
         <ListPane title="Agents" sub="Each has its own token and sees only what you grant."
-          foot={<LinkBtn href="#/agents/new" className="w-full" aria-current={adding ? "page" : undefined}>Add an agent</LinkBtn>}>
+          foot={<div className="flex flex-col gap-2">
+            <LinkBtn href="#/agents/new" className="w-full" aria-current={adding ? "page" : undefined}>Add an agent</LinkBtn>
+            {load.data && !linked && <LinkBtn href="#/agents/link" className="w-full" aria-current={linking ? "page" : undefined}>Link Pitcrew</LinkBtn>}
+          </div>}>
           {!load.data && (load.error ? <ErrorNote error={load.error} onRetry={load.reload} /> : <Loading />)}
           {load.data && list.length === 0 && (
             <p className="px-3 text-[13px] text-ink-3 leading-relaxed">No agents yet. Add one to give it a token for the MCP endpoint; it sees nothing until you grant it a scope.</p>
@@ -77,12 +83,12 @@ export function Agents({ id }: { id?: string }) {
       }
       detail={
         <Main>
-          {adding ? (
+          {linking ? <LinkPitcrew onCreated={(t) => changed(t.agent)} /> : adding ? (
             reveal ? <TokenReveal t={reveal} fresh onDone={() => { setReveal(null); navigate(href(["agents", reveal.agent.id])); }} />
               : <NewAgentForm onCreated={(t) => { changed(t.agent); setReveal(t); }} />
           ) : picked ? (
             <>
-              {reveal && reveal.agent.id === picked.id && <TokenReveal t={reveal} onDone={() => setReveal(null)} />}
+              {reveal && reveal.agent.id === picked.id && (reveal.agent.link ? <LinkReveal t={reveal} onDone={() => setReveal(null)} /> : <TokenReveal t={reveal} onDone={() => setReveal(null)} />)}
               <AgentDetail a={picked} onChanged={changed} onToken={(t) => { changed(t.agent); setReveal(t); }} />
             </>
           ) : load.data ? (
@@ -209,7 +215,7 @@ function AgentDetail({ a, onChanged, onToken }: { a: Agent; onChanged: (a?: Agen
         <div className="flex flex-col gap-3">
           <Card>
             <CardHead left="Connection" />
-            <div className="kv"><span>Endpoint</span><span className="font-mono text-[12px]">{MCP_URL}</span></div>
+            <div className="kv"><span>Endpoint</span><span className="font-mono text-[12px]">{a.link ? "Pitcrew link (/link)" : MCP_URL}</span></div>
             <div className="kv"><span>Token</span><span className="font-mono text-[12px]">{a.token_prefix}…</span></div>
             <div className="kv"><span>Profile it gets</span><a className="hover:text-ink-2" href={href(["context", "profile"], { target: a.profile })}>{TARGET_LABEL[a.profile]}</a></div>
           </Card>

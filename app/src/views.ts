@@ -6,6 +6,9 @@ import { listAgents } from "./agents.js";
 import { listProposals } from "./proposals.js";
 import { agentCallsSince } from "./trace.js";
 import * as S from "./store.js";
+import { pitcrewLinked } from "./link/members.js";
+import { lastBackup } from "./jobs.js";
+import { vaultSyncAttention } from "./vaultsync.js";
 
 const UP_SINCE = now();
 const count = (sql: string, ...a: (string | number)[]) => one<{ n: number }>(sql, ...a)!.n;
@@ -67,15 +70,16 @@ export function status(): Status {
   if (open) attention.push({ level: "warn", title: `${open} waiting in the inbox`, detail: "Agents proposed changes to what Engram knows.", action: "Open inbox", href: "/inbox" });
   if (lint) attention.push({ level: "warn", title: `${lint} profile lint ${lint === 1 ? "issue" : "issues"}`, detail: "Duplicate lines or a target over its line budget.", action: "Fix", href: "/profile" });
   if (!agents.length) attention.push({ level: "warn", title: "No agents yet", detail: "Make a token so an agent can connect to /mcp.", action: "Add agent", href: "/agents" });
+  attention.push(...vaultSyncAttention());
   const lastIndex = getSetting("last_index");
   return {
     up_since: UP_SINCE, calls_today: count("SELECT COUNT(*) n FROM trace WHERE at>=? AND agent IS NOT NULL", today),
     refused_today: count("SELECT COUNT(*) n FROM trace WHERE at>=? AND result='refused'", today), calls_by_hour: byHour,
     memories: count("SELECT COUNT(*) n FROM docs WHERE kind='memory' AND status='active'"),
     new_this_week: count("SELECT COUNT(*) n FROM docs WHERE kind='memory' AND status='active' AND at>=?", now() - 7 * DAY),
-    last_index: lastIndex ? Number(lastIndex) : null, last_backup: null,
-    // Linking Pitcrew (mirrored inbox and digest) is milestone M3; a Pitcrew-kind agent token alone isn't a link.
-    pitcrew_linked: false, inbox: { open, held }, attention,
+    last_index: lastIndex ? Number(lastIndex) : null, last_backup: lastBackup(),
+    // Linked means the link token itself was used lately; a Pitcrew member's own token isn't a link.
+    pitcrew_linked: pitcrewLinked(), inbox: { open, held }, attention,
     agents: agents.map((a) => ({ id: a.id, name: a.name, hue: a.hue ?? null, last_used_at: a.last_used_at ?? null, calls_today: calls.get(a.id) || 0 })),
   };
 }

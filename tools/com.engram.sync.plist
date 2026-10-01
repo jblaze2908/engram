@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Runs tools/engram-sync.mjs every 15 minutes. A template: launchd doesn't expand ~ or $HOME, so replace
+  /Users/YOU with your home and /opt/homebrew/bin/node with `which node`, then:
+    cp tools/com.engram.sync.plist ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.engram.sync.plist
+  Stop it with: launchctl bootout gui/$(id -u)/com.engram.sync
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.engram.sync</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/YOU/Engram-app/tools/engram-sync.mjs</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/YOU/Library/Logs/engram-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/YOU/Library/Logs/engram-sync.log</string>
+</dict>
+</plist>

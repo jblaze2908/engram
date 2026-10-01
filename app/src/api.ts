@@ -15,6 +15,8 @@ import * as V from "./views.js";
 import * as S from "./store.js";
 import { search } from "./search.js";
 import { listTrace } from "./trace.js";
+import { digest, digestWeeks, WEEK_RE } from "./digest.js";
+import { createLinkAgent } from "./link/members.js";
 
 const COOKIE = "eg_s";
 const cookie = (header: string | undefined) => (header || "").split(/;\s*/).map((c) => c.split("=")).find(([k]) => k === COOKIE)?.[1];
@@ -118,6 +120,9 @@ export const api = new Hono()
   })
   .post("/api/agents/:id/token", you, (c) => c.json(G.rotateToken(id(c))))
   .post("/api/agents/:id/revoke", you, (c) => c.json(G.revokeAgent(id(c))))
+  .post("/api/link", you, (c) => c.json(createLinkAgent()))
+  .get("/api/digest", you, (c) => c.json(digest(q(c, "week", WEEK_RE))))
+  .get("/api/digest/weeks", you, (c) => c.json(digestWeeks()))
 
   .get("/api/trace", you, (c) => c.json(listTrace({ who: q(c, "who", /^[\w .:-]{1,80}$/), result: q(c, "result", WORD), day: q(c, "day", DAYRE) })))
   .get("/api/connections", you, (c) => c.json([]));
