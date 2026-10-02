@@ -14,13 +14,18 @@ const OAUTH = (process.env.ENGRAM_GOOGLE_OAUTH || "https://accounts.google.com")
 const TOKEN = process.env.ENGRAM_GOOGLE_TOKEN || "https://oauth2.googleapis.com/token";
 const API = (process.env.ENGRAM_GOOGLE_API || "https://www.googleapis.com").replace(/\/$/, "");
 const GMAIL = (process.env.ENGRAM_GOOGLE_GMAIL || "https://gmail.googleapis.com").replace(/\/$/, "");
+const UPLOAD = (process.env.ENGRAM_GOOGLE_UPLOAD || "https://www.googleapis.com/upload").replace(/\/$/, "");
 
 const S = {
   gmailRead: "https://www.googleapis.com/auth/gmail.readonly",
   // compose also covers sending a draft; Engram exposes no send tool, so agents can only create drafts.
   gmailDraft: "https://www.googleapis.com/auth/gmail.compose",
   calendar: "https://www.googleapis.com/auth/calendar.readonly",
+  // Create and delete events; the tools only add attendee-free events and only delete ones Engram made.
+  calendarWrite: "https://www.googleapis.com/auth/calendar.events",
   drive: "https://www.googleapis.com/auth/drive.readonly",
+  // Only files Engram itself creates: it can't change or delete anything else in your Drive.
+  driveFile: "https://www.googleapis.com/auth/drive.file",
 };
 export const GOOGLE_SCOPES = Object.values(S);
 
@@ -212,6 +217,35 @@ export function googleServer(id: string) {
     return { busy: r.calendars?.[cal]?.busy ?? [] };
   }));
 
+  // Events Engram makes carry this private property; delete refuses anything without it.
+  const MINE = { private: { engram: "1" } };
+  s.registerTool("calendar_create_event", {
+    description: "Block time on your calendar: an event with no guests (nothing is sent to anyone). Busy and private unless you say otherwise.",
+    inputSchema: z.object({
+      title: oneLine.pipe(z.string().min(1).max(200)), start: When, end: When, notes: z.string().max(4000).optional(), location: oneLine.optional(),
+      free: z.boolean().optional().describe("show as free instead of busy"), calendar: Cal,
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, guard(id, S.calendarWrite, async (a: { title: string; start: string; end: string; notes?: string; location?: string; free?: boolean; calendar?: string }) => {
+    if (!(Date.parse(a.end) > Date.parse(a.start))) throw new Error("end must be after start");
+    const e = await g(id, `${API}/calendar/v3/calendars/${encodeURIComponent(a.calendar || "primary")}/events?sendUpdates=none`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ summary: a.title, start: { dateTime: a.start }, end: { dateTime: a.end }, ...(a.notes ? { description: a.notes } : {}), ...(a.location ? { location: a.location } : {}),
+        transparency: a.free ? "transparent" : "opaque", visibility: "private", extendedProperties: MINE }) });
+    return event(e);
+  }));
+
+  s.registerTool("calendar_delete_event", {
+    description: "Delete an event that Engram created (from calendar_create_event). Refuses any other event.",
+    inputSchema: z.object({ id: ID, calendar: Cal }),
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+  }, guard(id, S.calendarWrite, async (a: { id: string; calendar?: string }) => {
+    const base = `${API}/calendar/v3/calendars/${encodeURIComponent(a.calendar || "primary")}/events/${encodeURIComponent(a.id)}`;
+    const e = await g(id, base);
+    if (e.extendedProperties?.private?.engram !== "1") throw new Error("Engram didn't create this event, so it won't delete it");
+    await g(id, `${base}?sendUpdates=none`, { method: "DELETE" }, "text");
+    return { deleted: a.id, title: e.summary ?? null };
+  }));
+
   // ---------- Drive ----------
   const EXPORT: Record<string, string> = { "application/vnd.google-apps.document": "text/plain", "application/vnd.google-apps.spreadsheet": "text/csv", "application/vnd.google-apps.presentation": "text/plain" };
   const READ_MAX = 200_000;
@@ -239,5 +273,44 @@ export function googleServer(id: string) {
     return { id: f.id, name: f.name, mime: f.mimeType, link: f.webViewLink, text: body.slice(0, READ_MAX), truncated: body.length > READ_MAX };
   }));
 
+  const SAVE_TYPES = ["text/plain", "text/markdown", "text/csv", "text/html", "application/json", "application/pdf", "image/png", "image/jpeg"] as const;
+  const DOC_OF: Record<string, string> = { "text/plain": "application/vnd.google-apps.document", "text/markdown": "application/vnd.google-apps.document",
+    "text/html": "application/vnd.google-apps.document", "text/csv": "application/vnd.google-apps.spreadsheet" };
+  const SAVE_MAX = 4 << 20;
+  s.registerTool("drive_save_file", {
+    description: "Save a new file to the Engram folder in your Google Drive (never changes or deletes other files). Text as is, or a PDF or image as base64; text can become a Google Doc (CSV a Sheet).",
+    inputSchema: z.object({
+      name: oneLine.pipe(z.string().min(1).max(200)), mime: z.enum(SAVE_TYPES), content: z.string().max(6_000_000).describe("the file's text, or base64 for a PDF or image"),
+      as_google_doc: z.boolean().optional().describe("text/plain, markdown or html become a Google Doc; csv a Google Sheet"),
+    }),
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, guard(id, S.driveFile, async (a: { name: string; mime: string; content: string; as_google_doc?: boolean }) => {
+    const binary = a.mime === "application/pdf" || a.mime.startsWith("image/");
+    const bytes = binary ? Buffer.from(a.content, "base64") : Buffer.from(a.content, "utf8");
+    if (!bytes.length) throw new Error("Nothing to save");
+    if (bytes.length > SAVE_MAX) throw new Error("Larger than 4 MB");
+    const target = a.as_google_doc ? DOC_OF[a.mime] : undefined;
+    if (a.as_google_doc && !target) throw new Error("Only text, markdown, html or csv can become a Google Doc or Sheet");
+    const meta = { name: a.name, parents: [await engramFolder(id)], ...(target ? { mimeType: target } : {}) };
+    const boundary = `engram-${b64url(randomBytes(12))}`;
+    const body = Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${boundary}\r\nContent-Type: ${a.mime}\r\n\r\n`), bytes, Buffer.from(`\r\n--${boundary}--`)]);
+    const f = await g(id, `${UPLOAD}/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink`, { method: "POST", headers: { "content-type": `multipart/related; boundary=${boundary}` }, body });
+    return { id: f.id, name: f.name, mime: f.mimeType, link: f.webViewLink };
+  }));
+
   return s;
+}
+
+// The Engram folder: found by an app property Engram sets, since drive.file only sees files Engram made. Cached per process.
+const folders = new Map<string, string>();
+async function engramFolder(id: string) {
+  const known = folders.get(id);
+  if (known) return known;
+  const q = new URLSearchParams({ q: "appProperties has { key='engram' and value='folder' } and trashed = false", fields: "files(id)", pageSize: "1" });
+  let fid: string | undefined = (await g(id, `${API}/drive/v3/files?${q}`)).files?.[0]?.id;
+  if (!fid) fid = (await g(id, `${API}/drive/v3/files?fields=id`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: "Engram", mimeType: "application/vnd.google-apps.folder", appProperties: { engram: "folder" } }) })).id;
+  if (!fid) throw new Error("Google didn't create the Engram folder");
+  folders.set(id, fid);
+  return fid;
 }

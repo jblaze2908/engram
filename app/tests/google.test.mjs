@@ -7,8 +7,8 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const G = { challenge: null, verifier: null, codes: 0, refreshes: 0, drafts: [], queries: [], access: "at-1", scope: null };
-const ALL = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/drive.readonly"];
+const G = { events: [], deleted: [], uploads: [], folders: 0, challenge: null, verifier: null, codes: 0, refreshes: 0, drafts: [], queries: [], access: "at-1", scope: null };
+const ALL = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.readonly", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/drive.file"];
 const b64 = (s) => Buffer.from(s, "utf8").toString("base64url");
 const google = createServer(async (req, res) => {
   let raw = ""; for await (const c of req) raw += c;
@@ -33,7 +33,13 @@ const google = createServer(async (req, res) => {
   if (u.pathname === "/gmail/v1/users/me/messages") return send(200, { messages: [{ id: "m1", threadId: "t1" }] });
   if (u.pathname === "/gmail/v1/users/me/messages/m1") return send(200, msg(u.searchParams.get("format") === "full"));
   if (u.pathname === "/gmail/v1/users/me/drafts" && req.method === "POST") { G.drafts.push(JSON.parse(raw)); return send(200, { id: "d1", message: { id: "m9", threadId: "t1" } }); }
+  if (u.pathname === "/calendar/v3/calendars/primary/events" && req.method === "POST") { const e = JSON.parse(raw); G.events.push({ e, search: u.search }); return send(200, { id: "ev9", ...e }); }
+  if (u.pathname === "/calendar/v3/calendars/primary/events/ev9") { if (req.method === "DELETE") { G.deleted.push("ev9"); res.writeHead(204); return res.end(); } return send(200, { id: "ev9", summary: "Focus", extendedProperties: { private: { engram: "1" } } }); }
+  if (u.pathname === "/calendar/v3/calendars/primary/events/theirs") return send(200, { id: "theirs", summary: "Team sync" });
   if (u.pathname === "/calendar/v3/calendars/primary/events") return send(200, { items: [{ id: "e1", summary: "Dentist", start: { dateTime: "2026-10-03T10:00:00+05:30" }, end: { dateTime: "2026-10-03T10:30:00+05:30" }, status: "confirmed" }] });
+  if (u.pathname === "/drive/v3/files" && req.method === "POST") { G.folders++; assert.deepEqual(JSON.parse(raw), { name: "Engram", mimeType: "application/vnd.google-apps.folder", appProperties: { engram: "folder" } }); return send(200, { id: "fold1" }); }
+  if (u.pathname === "/drive/v3/files" && u.searchParams.get("q")?.startsWith("appProperties")) return send(200, { files: [] });
+  if (u.pathname === "/upload/drive/v3/files" && req.method === "POST") { G.uploads.push({ type: req.headers["content-type"], raw }); return send(200, { id: "up1", name: "Sep bills", mimeType: "application/vnd.google-apps.document", webViewLink: "https://docs.example/up1" }); }
   if (u.pathname === "/drive/v3/files") return send(200, { files: [{ id: "f1", name: "Rent 2026", mimeType: "application/vnd.google-apps.spreadsheet", webViewLink: "https://docs.example/f1" }] });
   if (u.pathname === "/drive/v3/files/f1") return send(200, { id: "f1", name: "Rent 2026", mimeType: "application/vnd.google-apps.spreadsheet", webViewLink: "https://docs.example/f1" });
   if (u.pathname === "/drive/v3/files/f1/export") return send(200, "month,paid\nSep,yes\n", "text/csv");
@@ -41,7 +47,7 @@ const google = createServer(async (req, res) => {
 });
 await new Promise((ok) => google.listen(0, "127.0.0.1", ok));
 const GURL = `http://127.0.0.1:${google.address().port}`;
-Object.assign(process.env, { ENGRAM_DEV_ALLOW_LOCAL: "1", ENGRAM_GOOGLE_OAUTH: GURL, ENGRAM_GOOGLE_TOKEN: `${GURL}/token`, ENGRAM_GOOGLE_API: GURL, ENGRAM_GOOGLE_GMAIL: GURL });
+Object.assign(process.env, { ENGRAM_DEV_ALLOW_LOCAL: "1", ENGRAM_GOOGLE_OAUTH: GURL, ENGRAM_GOOGLE_TOKEN: `${GURL}/token`, ENGRAM_GOOGLE_API: GURL, ENGRAM_GOOGLE_GMAIL: GURL, ENGRAM_GOOGLE_UPLOAD: `${GURL}/upload` });
 const { ROOT, req, close, signIn, makeAgent, g, mcp } = await import("./_env.mjs");
 
 let cookie, agent;
@@ -73,7 +79,7 @@ test("connect needs your client; sign-in uses PKCE and an offline refresh token;
   const c = done.json.connection;
   assert.equal(c.status, "ok");
   assert.deepEqual(Object.fromEntries(c.tools.map((t) => [t.name, t.kind])), {
-    calendar_events: "read", calendar_freebusy: "read", calendar_list: "read", drive_read: "read", drive_search: "read", gmail_create_draft: "write", gmail_read: "read", gmail_search: "read",
+    calendar_create_event: "write", calendar_delete_event: "write", calendar_events: "read", calendar_freebusy: "read", calendar_list: "read", drive_read: "read", drive_save_file: "write", drive_search: "read", gmail_create_draft: "write", gmail_read: "read", gmail_search: "read",
   });
   assert.equal(c.tools.find((t) => t.name === "gmail_create_draft").policy, "ask", "drafts ask you first");
   const blob = secretsBlob();
@@ -122,6 +128,47 @@ test("a draft is plain text, can't smuggle a header, and asks you first", async 
   assert.equal(inj.isError, true, "a line break in the subject is refused");
   assert.equal(G.drafts.length, 1);
   await req("PATCH", "/api/connections/google/tools/gmail_create_draft", { policy: null }, { cookie });
+});
+
+test("saving to Drive: only into Engram's own folder, as a Doc when asked, and it asks you first", async () => {
+  const w = await makeAgent(cookie, "Saver", [g("personal", true, "propose")]);
+  await req("PUT", `/api/agents/${w.agent.id}/tools`, { tools: ["google/drive_save_file"] }, { cookie });
+  const call = async (args) => (await mcp(w.token, "tools/call", { name: "google__drive_save_file", arguments: args })).msg.result;
+  const held = await call({ name: "Sep bills", mime: "text/markdown", content: "# Bills" });
+  assert.ok(/approv|ask|waiting/i.test(JSON.stringify(held)) && G.uploads.length === 0, "asks before anything reaches Drive");
+  await req("PATCH", "/api/connections/google/tools/drive_save_file", { policy: "allow" }, { cookie });
+  const w2 = await makeAgent(cookie, "Saver 2", [g("personal", true, "propose")]);
+  await req("PUT", `/api/agents/${w2.agent.id}/tools`, { tools: ["google/drive_save_file"] }, { cookie });
+  const r = (await mcp(w2.token, "tools/call", { name: "google__drive_save_file", arguments: { name: "Sep bills", mime: "text/markdown", content: "# Bills\n- BESCOM ₹1,240", as_google_doc: true } })).msg.result;
+  assert.equal(json(r).link, "https://docs.example/up1");
+  assert.equal(G.folders, 1, "creates the Engram folder once");
+  const up = G.uploads.at(-1);
+  assert.match(up.type, /^multipart\/related; boundary=engram-/);
+  assert.match(up.raw, /"parents":\["fold1"\]/);
+  assert.match(up.raw, /"mimeType":"application\/vnd\.google-apps\.document"/);
+  assert.ok(up.raw.includes("# Bills\n- BESCOM ₹1,240"));
+  await req("PATCH", "/api/connections/google/tools/drive_save_file", { policy: null }, { cookie });
+});
+
+test("calendar: blocks time with no guests and deletes only its own events", async () => {
+  await req("PATCH", "/api/connections/google/tools/calendar_create_event", { policy: "allow" }, { cookie });
+  await req("PATCH", "/api/connections/google/tools/calendar_delete_event", { policy: "allow" }, { cookie });
+  const mk = async (name) => { const w = await makeAgent(cookie, name, [g("personal", true, "propose")]); await req("PUT", `/api/agents/${w.agent.id}/tools`, { tools: ["google/calendar_create_event", "google/calendar_delete_event"] }, { cookie }); return (n, args) => mcp(w.token, "tools/call", { name: n, arguments: args }).then((r) => r.msg.result); };
+  const c1 = await mk("Planner");
+  const made = json(await c1("google__calendar_create_event", { title: "Focus", start: "2026-10-05T10:00:00+05:30", end: "2026-10-05T12:00:00+05:30", attendees: ["x@example.com"] }));
+  assert.equal(made.id, "ev9");
+  const sent = G.events.at(-1);
+  assert.equal(sent.search, "?sendUpdates=none");
+  assert.deepEqual({ t: sent.e.transparency, v: sent.e.visibility, p: sent.e.extendedProperties, a: sent.e.attendees }, { t: "opaque", v: "private", p: { private: { engram: "1" } }, a: undefined }, "no guests even if asked");
+  const c2 = await mk("Planner 2");
+  assert.equal((await c2("google__calendar_create_event", { title: "x", start: "2026-10-05T12:00:00Z", end: "2026-10-05T11:00:00Z" })).isError, true, "end before start");
+  const c3 = await mk("Planner 3");
+  assert.equal((await c3("google__calendar_delete_event", { id: "theirs" })).isError, true);
+  assert.deepEqual(G.deleted, [], "your own events are never deleted");
+  const c4 = await mk("Planner 4");
+  assert.equal(json(await c4("google__calendar_delete_event", { id: "ev9" })).deleted, "ev9");
+  assert.deepEqual(G.deleted, ["ev9"]);
+  for (const t of ["calendar_create_event", "calendar_delete_event"]) await req("PATCH", `/api/connections/google/tools/${t}`, { policy: null }, { cookie });
 });
 
 test("an expired access token is refreshed once; a revoked refresh token asks you to sign in again", async () => {
