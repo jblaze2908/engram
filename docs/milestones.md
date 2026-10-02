@@ -157,7 +157,12 @@ Receipts and statements from before are simply private artifacts now.
     Markdown is rendered server-side with raw HTML escaped. PDF inline (a sandbox CSP breaks Chrome's viewer), images
     and SVG sandboxed, code and data as plain text, anything else a download.
 
-### To put it on the internet (Jai)
+### On the internet (live 2026-10-02)
+
+Live at https://artifacts.example.com: DNS added by Jai, Traefik route applied (backup
+`dynamic_config.yml.bak-before-artifacts-20261002T165433Z`), Let's Encrypt cert issued on first request. Checked:
+MCP `publish` returned `/a/<id>`; without a session it redirects to engram's `/open`, which sends you to sign-in;
+an unknown `/s/<slug>` is 404. How it was set up, for a rebuild:
 
 1. Cloudflare DNS: `A artifacts.example.com → 203.0.113.10` (the address engram, pitcrew and ntfy resolve to); match their proxy setting.
 2. Traefik, `/opt/sso-proxy/config/traefik/dynamic_config.yml` (back it up first, as for the other hosts):
