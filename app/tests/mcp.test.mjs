@@ -78,7 +78,7 @@ test("status and context screens build", async () => {
   assert.ok(s.refused_today >= 1);
   assert.equal(s.calls_by_hour.length, 24);
   const c = (await req("GET", "/api/context", undefined, { cookie })).json;
-  assert.equal(c.areas.length, 6);
+  assert.equal(c.areas.length, 7);
   assert.equal(c.counts.memories, 3);
   assert.equal((await req("GET", "/api/areas/money", undefined, { cookie })).json.now.length, 1);
   assert.equal((await req("GET", "/api/areas/../etc", undefined, { cookie })).status, 404);
@@ -94,4 +94,17 @@ test("M6: tools declare output schemas and return structuredContent (client-side
   assert.deepEqual(res.structuredContent, JSON.parse(res.content[0].text), "structured and text results agree");
   // D6 measurement input: what one agent's tools/list costs with only Engram's own tools.
   console.log(`# measured tools/list: ${list.msg.result.tools.length} tools, ${Buffer.byteLength(JSON.stringify(list.msg.result.tools))} bytes`);
+});
+
+test("propose: area is an enum of the vault's areas, and a left-out area follows the scope", async () => {
+  const w = await makeAgent(cookie, "Backfill", [g("personal", true, "propose"), g("finance", true, "propose"), g("health", true, "propose")]);
+  const tools = (await mcp(w.token, "tools/list")).msg.result.tools;
+  const area = tools.find((t) => t.name === "propose").inputSchema.properties.area;
+  assert.deepEqual(area.enum, ["home", "money", "health", "car", "travel", "building", "hobbies"]);
+  assert.match(area.description, /finance goes to money, health to health/);
+  for (const [text, scope] of [["Wants to reach a 30% savings rate", "finance"], ["Trains at 7 PM most days", "health"], ["Follows Age of Empires II tournaments", "personal"]])
+    assert.equal((await call(w.token, "propose", { kind: "memory", text, scope })).isError, false);
+  await call(w.token, "propose", { kind: "memory", text: "Plays chess on weekends", scope: "personal", area: "hobbies" });
+  const got = Object.fromEntries((await req("GET", "/api/inbox", undefined, { cookie })).json.filter((p) => p.agent === "Backfill").map((p) => [p.title, p.area]));
+  assert.deepEqual(got, { "Wants to reach a 30% savings rate": "money", "Trains at 7 PM most days": "health", "Follows Age of Empires II tournaments": "home", "Plays chess on weekends": "hobbies" });
 });

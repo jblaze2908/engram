@@ -52,6 +52,7 @@ function refuse(who: Actor, action: string, target: string, scope: Scope | null,
   throw httpErr(result === "refused" ? 403 : 409, msg);
 }
 
+const SCOPE_AREA: Partial<Record<Scope, string>> = { finance: "money", health: "health" };
 export function propose(agent: Agent, input: ProposeInput): Promise<ProposeResult> {
   return withVault(() => proposeLocked(agent, input));
 }
@@ -61,7 +62,9 @@ async function proposeLocked(agent: Agent, input: ProposeInput): Promise<Propose
   // An agent can't claim to be you: "you" is what makes a memory yours for rule 3 and for trust.
   const raw = input.source || {};
   const source = sourceOf({ ...raw, kind: !raw.kind || raw.kind === "you" ? "agent" : raw.kind, label: raw.label || agent.name, agent: agent.id, at: raw.at ?? t });
-  const area = input.area || "home";
+  // No area named: the scope's own area when there is one (finance → money, health → health), else home.
+  const own = input.kind === "episode" ? null : SCOPE_AREA[input.scope || "personal"];
+  const area = input.area || (own && areaExists(own) ? own : "home");
   if (!areaExists(area)) throw httpErr(400, `Unknown area: ${area}`);
 
   // Rule 1: episodes describe, they don't assert, so an authenticated agent's go straight in.

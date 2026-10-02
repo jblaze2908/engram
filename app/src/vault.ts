@@ -58,10 +58,10 @@ export async function commit(paths: string[], message: string) {
   for (const f of afterCommit) f();
 }
 
-const AREAS: [string, string][] = [["home", "Home"], ["money", "Money"], ["health", "Health"], ["car", "Car"], ["travel", "Travel"], ["building", "Building"]];
+const AREAS: [string, string][] = [["home", "Home"], ["money", "Money"], ["health", "Health"], ["car", "Car"], ["travel", "Travel"], ["building", "Building"], ["hobbies", "Hobbies"]];
 const PROFILE: [string, string][] = [["working-style", "personal"], ["voice", "personal"], ["rules", "personal"], ["preferences", "personal"], ["money", "finance"], ["health", "health"]];
 
-// First boot: an empty, committed vault with the six areas and empty profile files. No facts, ever.
+// First boot: an empty, committed vault with the seeded areas and empty profile files. No facts, ever.
 export async function ensureVault() {
   if (existsSync(join(VAULT, ".git"))) return false;
   mkdirSync(VAULT, { recursive: true });

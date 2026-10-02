@@ -83,6 +83,16 @@ function getCall(agent: Agent, who: Actor, id: string) {
   return rec ? text({ kind: "call", record: rec }) : fail("No such call, or its result has expired");
 }
 
+// propose's area as an enum of the vault's areas with their summaries, so clients pick one instead of leaving it out.
+// Built per MCP request (one indexed read of the area rows), so a new area reaches every client on its next call.
+function proposeSchema() {
+  const list = S.areaList();
+  if (!list.length) return Propose;
+  const one = (a: { slug: string; summary: string }) => (a.summary ? `${a.slug} (${a.summary})` : a.slug);
+  return Propose.extend({ area: z.enum(list.map((a) => a.slug) as [string, ...string[]]).optional()
+    .describe(`The part of life it belongs to; pick the closest: ${list.map(one).join("; ")}. Left out, finance goes to money, health to health, anything else to home.`) });
+}
+
 function server(agent: Agent) {
   const who: Actor = { id: agent.id, name: agent.name }, scopes = readScopes(agent);
   const s = new McpServer({ name: "engram", version: "0.1.0" }, { instructions: instructions(agent, scopes) });
@@ -95,7 +105,7 @@ function server(agent: Agent) {
     return text({ hits });
   });
   s.registerTool("get", { description: "Get one record by id, as returned by search.", inputSchema: Get, outputSchema: GetOut }, (a) => a.id.startsWith("call:") ? getCall(agent, who, a.id) : getRecord(agent, who, scopes, a.id));
-  s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source.", inputSchema: Propose, outputSchema: ProposeOut }, async (a) => {
+  s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source, and give an area.", inputSchema: proposeSchema(), outputSchema: ProposeOut }, async (a) => {
     try { return text(await propose(agent, a) as unknown as Record<string, unknown>); } catch (e) { return fail(errMsg(e)); }
   });
   s.registerTool("profile", { description: "How the user works: the compiled profile for you, within your grants.", inputSchema: z.object({}), outputSchema: ProfileOut }, () => {

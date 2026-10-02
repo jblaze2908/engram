@@ -78,12 +78,15 @@ export const profileFiles = () => all("SELECT data FROM docs WHERE kind='profile
 export const areaRecord = (slug: string) => { const r = one("SELECT data FROM docs WHERE id=?", `area:${slug}`); return r ? json<{ slug: string; name: string; summary: string }>(r.data, {}) : null; };
 export const areaExists = (slug: string) => !!one("SELECT 1 FROM docs WHERE id=?", `area:${slug}`);
 
-const AREA_ORDER = ["home", "money", "health", "car", "travel", "building"];
-export function areas(): Area[] {
-  // The seeded areas keep the designed order; areas you add sort after them by name.
+const AREA_ORDER = ["home", "money", "health", "car", "travel", "building", "hobbies"];
+// The seeded areas keep the designed order; areas you add sort after them by name. One indexed read, no counts.
+export function areaList() {
   const rank = (s: string) => { const i = AREA_ORDER.indexOf(s); return i < 0 ? AREA_ORDER.length : i; };
-  const rows = all("SELECT data FROM docs WHERE kind='area' ORDER BY title").map((r) => json<{ slug: string; name: string; summary: string }>(r.data, {}))
+  return all("SELECT data FROM docs WHERE kind='area' ORDER BY title").map((r) => json<{ slug: string; name: string; summary: string }>(r.data, {}))
     .sort((a, b) => rank(a.slug) - rank(b.slug));
+}
+export function areas(): Area[] {
+  const rows = areaList();
   const count = (sql: string, ...a: string[]) => new Map(all<{ area: string; n: number }>(sql, ...a).map((r) => [r.area, r.n]));
   const mem = count("SELECT area, COUNT(*) n FROM docs WHERE kind='memory' AND status='active' GROUP BY area");
   const files = count("SELECT area, COUNT(*) n FROM docs WHERE kind='artifact' GROUP BY area");
