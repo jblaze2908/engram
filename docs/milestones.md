@@ -190,3 +190,21 @@ an unknown `/s/<slug>` is 404. How it was set up, for a rebuild:
 3. A different hostname later: change `ENGRAM_ARTIFACTS_HOST` for both services in `deploy/compose.yml` (engram-app
    reads it for the links it hands out, engram-artifacts for its own redirects) and the router rule. Existing links
    use the old host, so keep the old router until nobody needs them.
+
+## Batch 3 (2026-10-03): household, forget by connection, auto-accept, people briefs
+
+- **Trace:** a failed upstream call records the upstream's own error text (≤ 160 chars) instead of "failed"; arguments
+  stay shape-only.
+- **Household scope:** a fifth grantable scope (addresses, account last-4s, family), never a default grant, read-only for
+  agents. `POST /link/members` takes `household` at creation; `POST /link/members/:pitcrew_id/household {household}`
+  toggles it without rotating the token; `/link/sync` returns `household`. The grants table is rebuilt once so its
+  CHECK allows it.
+- **Forget by connection:** a memory records `connections` (what its agent called in the 10 min before; one indexed
+  trace read per memory). Connection detail counts them; `POST /api/connections/:id/forget-memories`;
+  `DELETE /api/connections/:id?memories=forget`.
+- **Auto-accept:** `agents.auto_accept` (Agents screen switch, not for Pitcrew members): clean memories and entities skip
+  the inbox; anything with a reason still waits. Proposals from an agent tainted in the last 10 min are now held with
+  that reason (before, the taint only gated write tools).
+- **People briefs:** every 10 min (one Calendar request), events in the next hour are matched to person entities by
+  title and the other attendees' names and emails; a match becomes a private artifact plus one ntfy push naming only
+  the people. Each event is briefed once (`briefs` table).
