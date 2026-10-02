@@ -1,7 +1,7 @@
 // Gateway state in SQLite: connections, the tools each one reported (with the pinned description), per-agent tool
 // grants, and the OAuth states in flight. A tool whose current text differs from its pinned text is blocked.
 import { createHash } from "node:crypto";
-import type { Connection, ConnectionAuth, ConnectionDetail, ConnectionTool, Decision, Proposal, ToolGrant } from "../../shared/types.js";
+import type { Connection, ConnectionAuth, ConnectionDetail, ConnectionTool, Decision, Proposal, ToolGrant, ToolPolicy } from "../../shared/types.js";
 import { now, uid, httpErr } from "../config.js";
 import { db, one, all, run, tx } from "../db.js";
 import { trace, type Actor } from "../trace.js";
@@ -20,20 +20,26 @@ CREATE INDEX IF NOT EXISTS agent_tools_conn ON agent_tools(conn_id, tool);
 -- One row per authorization redirect in flight: state is stored hashed and bound to the browser session that began it.
 CREATE TABLE IF NOT EXISTS oauth_states (hash TEXT PRIMARY KEY, conn_id TEXT NOT NULL, session_hash TEXT NOT NULL, created_at INTEGER NOT NULL);
 `);
+// Batch 2 columns on an existing install: upstream annotations and outputSchema as reported, your per-tool policy.
+const toolCols = new Set(all<{ name: string }>("PRAGMA table_info(conn_tools)").map((r) => r.name));
+for (const c of ["annotations", "output_schema", "policy"]) if (!toolCols.has(c)) db.exec(`ALTER TABLE conn_tools ADD COLUMN ${c} TEXT`);
 
 export const ENGRAM: Actor = { id: null, name: "engram" };
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
-export const CONN_ID = /^[a-z0-9][a-z0-9-]{0,30}$/;
+// 12 chars keeps mcp__engram__<conn>__ short enough that most tool names fit the 64-char client limit unshortened.
+export const CONN_ID = /^[a-z0-9][a-z0-9-]{0,11}$/;
 export const TOOL_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 
 export type ConnRow = { id: string; name: string; url: string; auth: ConnectionAuth; untrusted: number; state: "new" | "ok" | "auth" | "error"; error: string | null; created_at: number; connected_at: number | null; refreshed_at: number | null };
-export type ToolRow = { conn_id: string; name: string; description: string; schema: string; pinned_text: string; pinned_hash: string; current_text: string; current_hash: string; inferred: "read" | "write"; override: "read" | "write" | null };
+export type ToolRow = { conn_id: string; name: string; description: string; schema: string; pinned_text: string; pinned_hash: string; current_text: string; current_hash: string; inferred: "read" | "write"; override: "read" | "write" | null;
+  annotations: string | null; output_schema: string | null; policy: ToolPolicy | null };
 
 export const connRow = (id: string) => one<ConnRow>("SELECT * FROM connections WHERE id=?", id);
 export const connRows = () => all<ConnRow>("SELECT * FROM connections ORDER BY created_at");
 export const toolRows = (conn: string) => all<ToolRow>("SELECT * FROM conn_tools WHERE conn_id=? ORDER BY name", conn);
 export const setState = (id: string, state: ConnRow["state"], error: string | null = null) => run("UPDATE connections SET state=?, error=? WHERE id=?", state, error, id);
 export const kindOf = (t: Pick<ToolRow, "inferred" | "override">) => t.override || t.inferred;
+export const policyOf = (t: Pick<ToolRow, "inferred" | "override" | "policy">): ToolPolicy => t.policy || (kindOf(t) === "write" ? "ask" : "allow");
 
 // ---------- kinds ----------
 
@@ -44,12 +50,29 @@ export function inferKind(name: string, ann?: { readOnlyHint?: boolean; destruct
   return words.some((w) => WRITES.has(w)) || ann?.readOnlyHint === false || ann?.destructiveHint === true ? "write" : "read";
 }
 
-/** What gets pinned: the description plus each parameter's description, since either can carry an injected instruction. */
-export function pinText(t: { description?: string; inputSchema?: { properties?: Record<string, { description?: string }> } }) {
-  const params = Object.entries(t.inputSchema?.properties || {}).filter(([, p]) => typeof p?.description === "string" && p.description)
-    .map(([k, p]) => `- ${k}: ${p.description}`);
-  return [(t.description || "").trim(), ...params].filter(Boolean).join("\n").slice(0, 8000);
+type Props = { properties?: Record<string, { description?: string }> };
+/** What gets pinned: the description plus each parameter's (and output field's) description, since any can carry an injected instruction. */
+export function pinText(t: { description?: string; inputSchema?: Props; outputSchema?: Props }) {
+  const described = (s: Props | undefined, pre: string) => Object.entries(s?.properties || {}).filter(([, p]) => typeof p?.description === "string" && p.description)
+    .map(([k, p]) => `- ${pre}${k}: ${p.description}`);
+  return [(t.description || "").trim(), ...described(t.inputSchema, ""), ...described(t.outputSchema, "output.")].filter(Boolean).join("\n").slice(0, 8000);
 }
+
+// Only the boolean hints travel: a title is free text the pin doesn't cover.
+const HINTS = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] as const;
+export type Hints = Partial<Record<(typeof HINTS)[number], boolean>>;
+const hintsOf = (a: unknown): Hints | null => {
+  if (!a || typeof a !== "object") return null;
+  const h = Object.fromEntries(HINTS.filter((k) => typeof (a as Hints)[k] === "boolean").map((k) => [k, (a as Hints)[k]]));
+  return Object.keys(h).length ? h : null;
+};
+/** What clients see: the upstream's hints, except Engram's write kind always says it may change and destroy things. */
+export function forwardedHints(t: Pick<ToolRow, "annotations" | "inferred" | "override">): Hints | undefined {
+  const h: Hints = t.annotations ? JSON.parse(t.annotations) : {};
+  if (kindOf(t) === "write") Object.assign(h, { readOnlyHint: false, destructiveHint: true });
+  return Object.keys(h).length ? h : undefined;
+}
+const outputSchemaOf = (o: unknown) => (o && typeof o === "object" && (o as { type?: unknown }).type === "object" ? JSON.stringify(o).slice(0, 100_000) : null);
 
 // ---------- grants ----------
 
@@ -90,7 +113,7 @@ function grantsByTool(conn: string) {
   return m;
 }
 
-const tool = (t: ToolRow, agents: string[]): ConnectionTool => ({ name: t.name, kind: kindOf(t), description: t.description, agents, pinned: true, changed: t.current_hash !== t.pinned_hash });
+const tool = (t: ToolRow, agents: string[]): ConnectionTool => ({ name: t.name, kind: kindOf(t), policy: policyOf(t), description: t.description, agents, pinned: true, changed: t.current_hash !== t.pinned_hash });
 
 export function listConnections(): Connection[] {
   return connRows().map((c) => {
@@ -112,7 +135,7 @@ export function connectionDetail(id: string): ConnectionDetail {
 
 // ---------- tools/list reconciliation ----------
 
-type Listed = { name: string; description?: string; inputSchema?: Record<string, any>; annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean } };
+type Listed = { name: string; description?: string; inputSchema?: Record<string, any>; outputSchema?: Record<string, any>; annotations?: Hints };
 
 /** First sight pins; a changed text blocks the tool for every agent and opens one tool_change proposal per new text. */
 export function reconcile(conn: ConnRow, listed: Listed[]) {
@@ -123,14 +146,15 @@ export function reconcile(conn: ConnRow, listed: Listed[]) {
       seen.add(l.name);
       const text = pinText(l), hash = sha256(text), desc = (l.description || "").slice(0, 4000);
       const schema = JSON.stringify(l.inputSchema && typeof l.inputSchema === "object" ? l.inputSchema : { type: "object" }).slice(0, 100_000);
+      const ann = hintsOf(l.annotations), hints = ann ? JSON.stringify(ann) : null, out = outputSchemaOf(l.outputSchema);
       const old = one<ToolRow>("SELECT * FROM conn_tools WHERE conn_id=? AND name=?", conn.id, l.name);
       if (!old) {
-        run("INSERT INTO conn_tools(conn_id,name,description,schema,pinned_text,pinned_hash,current_text,current_hash,inferred,seen_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-          conn.id, l.name, desc, schema, text, hash, text, hash, inferKind(l.name, l.annotations), t);
+        run("INSERT INTO conn_tools(conn_id,name,description,schema,pinned_text,pinned_hash,current_text,current_hash,inferred,annotations,output_schema,seen_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+          conn.id, l.name, desc, schema, text, hash, text, hash, inferKind(l.name, ann ?? undefined), hints, out, t);
         continue;
       }
-      run("UPDATE conn_tools SET description=?, schema=?, current_text=?, current_hash=?, inferred=?, seen_at=? WHERE conn_id=? AND name=?",
-        desc, schema, text, hash, inferKind(l.name, l.annotations), t, conn.id, l.name);
+      run("UPDATE conn_tools SET description=?, schema=?, current_text=?, current_hash=?, inferred=?, annotations=?, output_schema=?, seen_at=? WHERE conn_id=? AND name=?",
+        desc, schema, text, hash, inferKind(l.name, ann ?? undefined), hints, out, t, conn.id, l.name);
       if (hash === old.pinned_hash) { closeChanges(conn.id, l.name, null); continue; }
       // Same new text as last time: already proposed (or you chose Keep blocked); don't ask again.
       if (hash === old.current_hash) continue;

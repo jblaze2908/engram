@@ -1,7 +1,7 @@
 import type {
-  Agent, AreaView, Artifact, ArtifactKind, CompiledProfile, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Digest, Entity, EntityKind,
+  Agent, AreaView, Artifact, ArtifactKind, CatalogEntry, CompiledProfile, ConnectionAuth, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Digest, Entity, EntityKind,
   EntityView, Grant, JournalView, Memory, MemoryStatus, NewConnection, NewToken, ProfileFile, ProfileTarget, Proposal, Provenance,
-  Scope, Session, Skill, Status, TraceRow,
+  Scope, Session, Skill, Status, ToolPolicy, TraceRow,
 } from "../../../shared/types";
 
 export class ApiError extends Error {
@@ -103,7 +103,7 @@ export const api = {
     request<TraceRow[]>("GET", `/api/trace${qs(f)}`),
   connections: () => request<Connection[]>("GET", "/api/connections"),
   connection: (id: string) => request<ConnectionDetail>("GET", `/api/connections/${enc(id)}`),
-  addConnection: (c: NewConnection) => request<ConnectResult>("POST", "/api/connections", c),
+  addConnection: (c: NewConnection & { id?: string }) => request<ConnectResult>("POST", "/api/connections", c),
   updateConnection: (id: string, patch: { untrusted?: boolean; token?: string }) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}`, patch),
   connect: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/connect`),
   refreshConnection: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/refresh`),
@@ -112,6 +112,10 @@ export const api = {
   setToolKind: (id: string, tool: string, kind: "read" | "write" | null) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}/tools/${enc(tool)}`, { kind }),
   approveTool: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/approve`),
   keepBlocked: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/keep`),
+  setToolPolicy: (id: string, tool: string, policy: ToolPolicy | null) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}/tools/${enc(tool)}`, { policy }),
+  catalog: (q: string) => request<CatalogEntry[]>("GET", `/api/catalog${qs({ q })}`),
+  probe: (url: string) => request<{ auth: ConnectionAuth; dcr: boolean | null; scopes: string[] }>("POST", "/api/catalog/probe", { url }),
+  callArgs: (proposal: string) => request<{ call: string; status: string; args: Record<string, unknown> | null }>("GET", `/api/calls/${enc(proposal)}`),
   setAgentTools: (id: string, tools: string[]) => request<Agent>("PUT", `/api/agents/${enc(id)}/tools`, { tools }),
 
   memoriesByIds: (ids: string[]) => request<Memory[]>("GET", `/api/memories${qs({ ids: ids.join(",") })}`),

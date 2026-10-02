@@ -116,7 +116,7 @@ export interface Connection { id: string; name: string; status: "ok" | "warn" | 
 
 /** How Engram signs in to an upstream MCP server. Credentials are stored encrypted (AES-256-GCM, master.key) and never leave the server. */
 export type ConnectionAuth = "oauth" | "bearer" | "none";
-export interface ConnectionTool { name: string; kind: "read" | "write"; description: string; agents: string[]; pinned: boolean; changed: boolean }
+export interface ConnectionTool { name: string; kind: "read" | "write"; policy: ToolPolicy; description: string; agents: string[]; pinned: boolean; changed: boolean }
 export interface ConnectionDetail extends Connection {
   url: string; auth: ConnectionAuth; untrusted: boolean; connected_at: number | null; refreshed_at: number | null;
   tools: ConnectionTool[]; changes: { tool: string; approved: string; now: string }[];

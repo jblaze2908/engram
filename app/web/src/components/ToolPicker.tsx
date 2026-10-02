@@ -52,6 +52,7 @@ export function ToolPicker({ a, onChanged }: { a: Agent; onChanged: (a: Agent) =
           </div>
         );
       })}
+      {list.length > 0 && <p className="px-[18px] pb-3 text-[12.5px] text-ink-3">Changes apply when {a.name} starts a new session.</p>}
       {error && <p role="alert" className="px-[18px] pb-3 text-[13px] text-bad">{error}</p>}
     </Card>
   );

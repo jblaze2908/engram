@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Connection, ConnectionAuth, ConnectResult } from "../../../shared/types";
+import type { Connection, ConnectionAuth, ConnectResult, ToolPolicy } from "../../../shared/types";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app";
 import { useWho } from "../lib/directory";
 import { ago, shortDate } from "../lib/format";
 import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
+import { AddFromCatalog } from "../components/Catalog";
 import { BackLink, Btn, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, ListPane, Loading, Main, Split, Toggle } from "../components/ui";
 
 const statusColor = (s: Connection["status"]) => (s === "signal" ? "var(--signal)" : s === "warn" ? "var(--warn)" : "var(--in)");
 const AUTH_LABEL: Record<ConnectionAuth, string> = { oauth: "Sign in (OAuth)", bearer: "Token or API key", none: "No sign-in" };
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+const POLICY: [ToolPolicy, string][] = [["allow", "run"], ["ask", "ask me"], ["block", "block"]];
 
 /** An OAuth connection that needs you: the authorization page replaces this tab, and its callback brings you back. */
 function follow(r: ConnectResult) {
@@ -21,6 +23,8 @@ function follow(r: ConnectResult) {
 export function Connections({ id, query }: { id?: string; query?: URLSearchParams }) {
   const load = useLoad(() => api.connections(), []);
   const [adding, setAdding] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const added = (r: ConnectResult) => { setAdding(false); setBrowsing(false); load.reload(); if (!follow(r)) navigate(href(["connections", r.connection.id])); };
   const list = load.data ?? [];
   const picked = list.find((c) => c.id === id) ?? (id ? undefined : list[0]);
   useOAuthReturn(query, load.reload);
@@ -36,7 +40,8 @@ export function Connections({ id, query }: { id?: string; query?: URLSearchParam
               <span><span className="block">{c.name}</span><span className="block text-[12.5px] text-ink-3 mt-0.5">{c.detail} · {c.tools.length} {c.tools.length === 1 ? "tool" : "tools"}</span></span>
             </a>
           ))}
-          <Btn className="mt-3 mx-1" onClick={() => setAdding(true)}>Add a connection</Btn>
+          <Btn kind="primary" className="mt-3 mx-1" onClick={() => setBrowsing(true)}>Add from catalog</Btn>
+          <Btn className="mt-2 mx-1" onClick={() => setAdding(true)}>Add by URL</Btn>
         </ListPane>
       }
       detail={
@@ -53,7 +58,8 @@ export function Connections({ id, query }: { id?: string; query?: URLSearchParam
           ) : null}
         </Main>
       } />
-      <AddConnection open={adding} onClose={() => setAdding(false)} onAdded={(r) => { setAdding(false); load.reload(); if (!follow(r)) navigate(href(["connections", r.connection.id])); }} />
+      <AddConnection open={adding} onClose={() => setAdding(false)} onAdded={added} />
+      <AddFromCatalog open={browsing} onClose={() => setBrowsing(false)} onAdded={added} />
     </>
   );
 }
@@ -165,15 +171,15 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
       )}
 
       <Card className="mt-3">
-        <CardHead left="Tools" right="read-only unless you say so" />
+        <CardHead left="Tools" right="writes ask you first unless you say so" />
         {c.tools.length === 0 && <Lede className="px-5 pb-4">No tools reported yet.</Lede>}
         {c.tools.length > 0 && (
-          <div className="grid grid-cols-[1fr_auto] wide:grid-cols-[minmax(160px,1fr)_90px_1fr_130px] gap-3 px-[18px] py-2.5 text-[12px] text-ink-3 border-t border-line max-wide:hidden">
-            <span>Tool</span><span>Kind</span><span>Agents allowed</span><span className="text-right">Description</span>
+          <div className="grid grid-cols-[1fr_auto] wide:grid-cols-[minmax(160px,1fr)_90px_90px_1fr_130px] gap-3 px-[18px] py-2.5 text-[12px] text-ink-3 border-t border-line max-wide:hidden">
+            <span>Tool</span><span>Kind</span><span>Calls</span><span>Agents allowed</span><span className="text-right">Description</span>
           </div>
         )}
         {c.tools.map((t) => (
-          <div key={t.name} className="grid grid-cols-[1fr_auto] wide:grid-cols-[minmax(160px,1fr)_90px_1fr_130px] gap-3 items-center px-[18px] py-[11px] border-t border-line text-[13px]">
+          <div key={t.name} className="grid grid-cols-[1fr_auto] wide:grid-cols-[minmax(160px,1fr)_90px_90px_1fr_130px] gap-3 items-center px-[18px] py-[11px] border-t border-line text-[13px]">
             <span className="min-w-0"><span className="block font-mono text-[12.5px] truncate">{t.name}</span><span className="block text-[12px] text-ink-3 truncate wide:hidden">{t.kind}</span></span>
             <span className="max-wide:hidden">
               <label className="sr-only" htmlFor={`k-${t.name}`}>Kind of {t.name}</label>
@@ -181,6 +187,13 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
                 className="h-[28px] rounded-[8px] bg-transparent border border-line px-1.5 text-[12.5px] text-ink-2">
                 <option value="read">read</option>
                 <option value="write">write</option>
+              </select>
+            </span>
+            <span className="max-wide:hidden">
+              <label className="sr-only" htmlFor={`p-${t.name}`}>Calls to {t.name}</label>
+              <select id={`p-${t.name}`} value={t.policy} disabled={busy} onChange={(e) => run(() => api.setToolPolicy(c.id, t.name, e.target.value as ToolPolicy))}
+                className="h-[28px] rounded-[8px] bg-transparent border border-line px-1.5 text-[12.5px]" style={{ color: t.policy === "block" ? "var(--bad)" : t.policy === "ask" ? "var(--warn)" : "var(--ink-2)" }}>
+                {POLICY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </span>
             <span className="text-ink-2 max-wide:hidden truncate">{t.agents.length ? t.agents.map((a) => who(a).name).join(", ") : "nobody"}</span>
@@ -197,7 +210,7 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
           <span>Untrusted content <span className="block text-[12px] text-ink-3">Results are marked for agents, like email or a web page</span></span>
           <Toggle on={c.untrusted} disabled={busy} label="Untrusted content" onChange={(v) => run(() => api.updateConnection(c.id, { untrusted: v }))} />
         </div>
-        <p className="px-[18px] py-3 border-t border-line text-[12.5px] text-ink-3">Grant tools per agent on the <a className="text-data hover:underline" href="#/agents">Agents</a> screen. Write tools are never granted on their own.</p>
+        <p className="px-[18px] py-3 border-t border-line text-[12.5px] text-ink-3">Grant tools per agent on the <a className="text-data hover:underline" href="#/agents">Agents</a> screen. Write tools are never granted on their own. Grant changes reach an agent in its next session; one already running keeps the tools it started with.</p>
       </Card>
     </>
   );

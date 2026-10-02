@@ -9,6 +9,7 @@ import { sha, safeEq } from "../auth.js";
 import { safeFetch } from "./net.js";
 import { getSecret, putSecret, getJson, putJson, dropSecret, dropSecrets } from "./secrets.js";
 import { connRow, connRows, setState, reconcile, type ConnRow } from "./store.js";
+import { pruneCalls } from "./gate.js";
 
 export const ENGRAM_URL = (process.env.ENGRAM_URL || `https://${HOST}`).replace(/\/$/, "");
 export const REDIRECT = `${ENGRAM_URL}/api/connections/oauth/callback`;
@@ -160,9 +161,10 @@ export async function forget(id: string) {
   dropSecrets(`conn:${id}:`);
 }
 
-// One timer for every connection: every 15 min, refresh those not listed in 6 h. A restart doesn't reset the clock.
+// One timer for every connection: every 15 min, refresh those not listed in 6 h (and drop expired call results). A restart doesn't reset the clock.
 export function startGateway() {
   const t = setInterval(async () => {
+    pruneCalls();
     for (const c of connRows()) {
       if (c.state === "new" || (c.state === "auth" && c.auth === "oauth")) continue;
       if (c.refreshed_at && now() - c.refreshed_at < REFRESH_EVERY) continue;

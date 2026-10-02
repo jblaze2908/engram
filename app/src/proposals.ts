@@ -14,6 +14,7 @@ import { memoryById, areaExists, docById, docData } from "./store.js";
 import { proposed } from "./notify.js";
 import { useRemoteVersion } from "./vaultsync.js";
 import { decideToolChange } from "./gateway/store.js";
+import { decideToolCall } from "./gateway/gate.js";
 
 export type ProposeInput = {
   kind: ProposalKind | "episode"; text?: string; title?: string; name?: string; summary?: string; description?: string; body?: string;
@@ -180,7 +181,9 @@ function write(p: Proposal, t: number): { paths: string[]; msg: string } {
   return { paths: [rel], msg: `skill: ${d.name} v${version}` };
 }
 
-export function decide(id: string, decision: Decision, who: Actor = YOU) {
+export async function decide(id: string, decision: Decision, who: Actor = YOU): Promise<Proposal> {
+  // A tool call touches no vault file and may wait on the upstream for a minute, so it runs outside the vault lock.
+  if (one("SELECT 1 FROM proposals WHERE id=? AND kind='tool_call'", id)) { await decideToolCall(id, decision, who); return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!); }
   return withVault(async () => {
     const r = one("SELECT * FROM proposals WHERE id=?", id);
     if (!r) throw httpErr(404, "No such proposal");
