@@ -262,3 +262,40 @@ test("link artifacts: what members published, with link state; other agents' fil
   assert.ok(!(await list()).some((a) => a.id === p.json.id), "forgotten artifacts drop out");
   assert.equal((await req("GET", "/link/artifacts", undefined, { bearer: other.token, csrf: false })).status, 403, "the link token only");
 });
+
+test("link artifacts: search, member, status, kind and imported filters; pages by cursor; counts cover everything", async () => {
+  const pub = (pitcrew_id, title, filename, content, extra = {}) =>
+    L("POST", "/link/artifacts", { pitcrew_id, title, filename, content_base64: Buffer.from(content).toString("base64"), ref: `pitcrew:thread:th_${title.length}`, ...extra });
+  const md = (await pub("bills", "Electricity tariff notes", "tariff.md", "# Tariff\nSlab rates for Bescom")).json;
+  const pdf = (await pub("bills", "Rent agreement", "rent.pdf", "%PDF-1.4 rent")).json;
+  const png = (await pub("health", "Blood report scan", "scan.png", "\x89PNG fake")).json;
+  const wait = (await pub("health", "Diet plan", "diet.html", "<h1>Diet</h1>", { public: true })).json;
+  const list = async (qs = "") => (await L("GET", `/link/artifacts${qs}`)).json;
+  const ids = async (qs) => (await list(qs)).artifacts.map((a) => a.id);
+
+  const all = await list();
+  assert.ok(all.counts.imported >= 1, "the receipt imported earlier counts as imported");
+  assert.ok(!all.artifacts.some((a) => a.ref === null), "imported files stay out unless asked for");
+  assert.ok((await list("?imported=1")).artifacts.every((a) => a.ref === null));
+  assert.equal(all.counts.waiting, all.artifacts.filter((a) => a.share_pending).length);
+
+  assert.deepEqual(await ids("?q=bescom"), [md.id], "text artifacts match on their contents");
+  assert.deepEqual(await ids("?q=rent"), [pdf.id]);
+  assert.deepEqual(await ids("?q=%22%22"), [], "a query with no words matches nothing");
+  assert.ok((await ids("?member=health")).includes(png.id) && !(await ids("?member=health")).includes(md.id));
+  assert.deepEqual(await ids("?member=nobody"), []);
+  assert.ok((await ids("?status=waiting")).includes(wait.id) && !(await ids("?status=private")).includes(wait.id));
+  assert.ok((await ids("?status=private")).includes(md.id));
+  assert.ok((await ids("?kind=pdf")).every((id) => id === pdf.id) && (await ids("?kind=pdf")).includes(pdf.id));
+  assert.ok((await ids("?kind=image")).includes(png.id) && (await ids("?kind=page")).includes(md.id) && (await ids("?kind=page")).includes(wait.id));
+
+  const p1 = await list("?limit=2");
+  assert.equal(p1.artifacts.length, 2); assert.match(p1.next, /^\d+:art_/);
+  const p2 = await list(`?limit=2&cursor=${encodeURIComponent(p1.next)}`);
+  assert.equal(p2.artifacts.filter((a) => p1.artifacts.some((b) => b.id === a.id)).length, 0, "pages don't repeat");
+  let seen = [], next = null;
+  do { const p = await list(`?limit=3${next ? `&cursor=${encodeURIComponent(next)}` : ""}`); seen.push(...p.artifacts.map((a) => a.id)); next = p.next; } while (next);
+  assert.deepEqual(seen, all.artifacts.map((a) => a.id), "walking the pages gives the whole list, newest first");
+
+  for (const bad of ["?status=maybe", "?kind=exe", "?limit=500", "?cursor=x", "?member=../x"]) assert.equal((await L("GET", `/link/artifacts${bad}`)).status, 400, bad);
+});

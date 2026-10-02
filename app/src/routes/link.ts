@@ -92,7 +92,16 @@ export const link = new Hono<Env>()
     }), 14 << 20);
     return c.json(await linkPublish(c.get("agent"), memberOf(b.pitcrew_id), b));
   })
-  .get("/link/artifacts", (c) => c.json({ artifacts: linkArtifacts() }))
+  .get("/link/artifacts", (c) => {
+    const f = z.object({
+      q: z.string().max(100).optional(), member: PID.optional(), status: z.enum(["public", "waiting", "private"]).optional(),
+      kind: z.enum(["page", "pdf", "image", "other"]).optional(), imported: z.enum(["1", "0"]).optional(),
+      cursor: z.string().regex(/^\d{1,15}:[\w-]{1,100}$/).optional(), limit: z.coerce.number().int().min(1).max(100).optional(),
+    }).safeParse(c.req.query());
+    if (!f.success) throw httpErr(400, "Invalid filter");
+    const [at, id] = f.data.cursor?.split(/:(.*)/) ?? [];
+    return c.json(linkArtifacts({ ...f.data, imported: f.data.imported === "1", cursor: f.data.cursor ? { at: Number(at), id } : undefined }));
+  })
   .get("/link/sync", (c) => {
     const pid = PID.safeParse(c.req.query("pitcrew_id"));
     if (!pid.success) throw httpErr(400, "Invalid pitcrew_id");

@@ -143,6 +143,12 @@ export interface LinkArtifact {
   id: string; title: string; kind: string; pitcrew_id: string; version: number; mime: string | null; size: number | null;
   url: string; public_url: string | null; share_pending: boolean; ref: string | null; created_at: number; updated_at: number;
 }
+export interface LinkArtifactFilter {
+  q?: string; member?: string; status?: "public" | "waiting" | "private"; kind?: "page" | "pdf" | "image" | "other";
+  imported?: boolean; cursor?: { at: number; id: string }; limit?: number;
+}
+/** counts cover every member and filter: total (published from threads), waiting (a public link waits for you), imported. */
+export interface LinkArtifactPage { artifacts: LinkArtifact[]; next: string | null; counts: { total: number; waiting: number; imported: number } }
 /** What Pitcrew needs to mirror Engram: open proposals (never private scope) and the current digest. */
 export interface LinkInbox { proposals: Proposal[]; at: number }
 export interface Digest {
