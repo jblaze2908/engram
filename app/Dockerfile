@@ -1,8 +1,8 @@
 # Engram: TypeScript + Hono server (web API + one MCP endpoint), React web app built by Vite.
 # The vault (markdown + git) and the SQLite index live under /srv/engram, mounted from the host.
 FROM node:22-bookworm-slim AS build
-# The tests commit to a temp vault, so the build stage needs git too.
-RUN apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
+# git: the tests commit to a temp vault. curl + CA certs: the model download below.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Search embeddings: pinned Hugging Face revision, sha256-checked here; nothing is fetched at runtime.
 COPY scripts/fetch-model.sh scripts/
