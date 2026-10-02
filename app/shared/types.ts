@@ -142,12 +142,18 @@ export interface Digest {
   openLoops: { text: string; area: string }[];
   journal: { day: string; lines: string[] }[];
 }
-export interface LinkMember { pitcrew_id: string; name: string; hue?: string | null; area?: string | null }
+/** scope: the member's home scope (default personal). connections: read tools granted once, when the agent is created. */
+export interface LinkMember { pitcrew_id: string; name: string; hue?: string | null; area?: string | null; scope?: "personal" | "finance" | "health"; connections?: string[] }
+/** One of a member's own memories as Pitcrew shows it (source is the label). */
+export interface LinkMemory { id: string; text: string; scope: Scope; area: string; created_at: number; source: string }
+export interface LinkConnection { id: string; name: string; status: "ok" | "warn" | "signal"; detail: string; read: number; write: number }
 
 // ---------- M5 sync ----------
 
 /** What Pitcrew puts in a member's instructions: its compiled profile and the names of skills it may load with get(). Nothing is written to disk. */
-export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; connections: { id: string; name: string }[]; at: number }
+export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; connections: { id: string; name: string }[];
+  /** The member's own active memories, newest first (≤60), and its home scope. */
+  memories: { id: string; text: string }[]; scope: Scope; at: number }
 
 // ---------- batch 2: catalog, approval gate, OAuth server ----------
 

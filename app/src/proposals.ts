@@ -53,11 +53,12 @@ function refuse(who: Actor, action: string, target: string, scope: Scope | null,
 }
 
 const SCOPE_AREA: Partial<Record<Scope, string>> = { finance: "money", health: "health" };
-export function propose(agent: Agent, input: ProposeInput): Promise<ProposeResult> {
-  return withVault(() => proposeLocked(agent, input));
+// extra: reasons the caller already knows to hold this for (the Pitcrew link's tainted turns); any reason holds it.
+export function propose(agent: Agent, input: ProposeInput, extra: string[] = []): Promise<ProposeResult> {
+  return withVault(() => proposeLocked(agent, input, extra));
 }
 
-async function proposeLocked(agent: Agent, input: ProposeInput): Promise<ProposeResult> {
+async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[]): Promise<ProposeResult> {
   const who: Actor = { id: agent.id, name: agent.name }, t = now();
   // An agent can't claim to be you: "you" is what makes a memory yours for rule 3 and for trust.
   const raw = input.source || {};
@@ -80,7 +81,7 @@ async function proposeLocked(agent: Agent, input: ProposeInput): Promise<Propose
 
   const scope = input.scope || "personal";
   if (!canPropose(agent, scope)) refuse(who, "propose", input.kind, scope, `No propose grant for ${scope}`);
-  const reasons: string[] = [];
+  const reasons: string[] = [...extra];
   // Rule 2: untrusted sources are quarantined whatever they say.
   if (source.kind === "email") reasons.push("Email content is never trusted on its own");
   if (source.kind === "web") reasons.push("Web pages are never trusted on their own");

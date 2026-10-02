@@ -139,3 +139,101 @@ test("link digest and member sync bundle", async () => {
   assert.equal((await L("GET", "/link/sync?pitcrew_id=nobody")).status, 404);
   assert.equal((await L("GET", "/link/nope")).status, 404);
 });
+
+// ---------- link v2: home scope, connections at hire, a member's own memories, journal ----------
+
+function addConnection(id, tools) {
+  run("INSERT INTO connections(id,name,url,auth,untrusted,state,created_at) VALUES(?,?,?,?,0,'ok',?)", id, id.toUpperCase(), `https://${id}.example/mcp`, "bearer", Date.now());
+  for (const [name, inferred, policy] of tools)
+    run("INSERT INTO conn_tools(conn_id,name,description,schema,pinned_text,pinned_hash,current_text,current_hash,inferred,seen_at,policy) VALUES(?,?,'','{}','','h','','h',?,?,?)", id, name, inferred, Date.now(), policy ?? null);
+}
+
+test("members: home scope sets area and grants; connections grant read tools once, on creation", async () => {
+  addConnection("gh", [["list_issues", "read"], ["get_repo", "read", "block"], ["create_issue", "write"]]);
+  const h = await L("POST", "/link/members", { pitcrew_id: "health", name: "Health", scope: "health", connections: ["gh", "nope"] });
+  assert.equal(h.status, 200);
+  const grants = Object.fromEntries(h.json.agent.grants.map((x) => [x.scope, [x.read, x.write]]));
+  assert.deepEqual(grants, { personal: [true, "propose"], finance: [false, "none"], health: [true, "propose"] });
+  assert.deepEqual(h.json.agent.tools, ["gh/list_issues"], "read tools only, never blocked or write tools");
+  const s = await L("GET", "/link/sync?pitcrew_id=health");
+  assert.equal(s.json.scope, "health");
+  assert.deepEqual(s.json.connections, [{ id: "gh", name: "GH" }]);
+
+  const again = await L("POST", "/link/members", { pitcrew_id: "health", name: "Health", scope: "health", connections: [] });
+  assert.deepEqual(again.json.agent.tools, ["gh/list_issues"], "a rotate never changes tool grants");
+  const bills = await L("POST", "/link/members", { pitcrew_id: "bills", name: "Bills", area: "money", scope: "finance", connections: ["gh"] });
+  assert.deepEqual(bills.json.agent.grants.find((x) => x.scope === "finance"), { scope: "finance", read: true, write: "propose" }, "a scope change adds its grant");
+  assert.deepEqual(bills.json.agent.tools, [], "connections only apply on creation");
+  await L("POST", "/link/members", { pitcrew_id: "bills", name: "Bills", area: "money" });
+  assert.equal((await L("GET", "/link/memories?pitcrew_id=bills")).json.scope, "personal");
+  assert.equal((await L("POST", "/link/members", { pitcrew_id: "x", name: "X", scope: "private" })).status, 400);
+
+  const c = await L("GET", "/link/connections");
+  assert.deepEqual(c.json.connections.find((x) => x.id === "gh"), { id: "gh", name: "GH", status: "ok", detail: "Fine", read: 2, write: 1 });
+});
+
+test("memories: clean turn accepted, own list and sync, dupes, supersede own only, untrusted held", async () => {
+  const a = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Allergic to penicillin", ref: "thread:t1" });
+  assert.deepEqual([a.status, a.json.status, a.json.reasons], [200, "accepted", []]);
+  const m = (await req("GET", `/api/memories/${a.json.id}`, undefined, { cookie })).json;
+  assert.deepEqual([m.scope, m.area, m.source.kind, m.source.label, m.source.ref, m.trust], ["health", "health", "agent", "pitcrew:Health", "thread:t1", "trusted"]);
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "allergic to penicillin." })).json.id, a.json.id, "an exact restatement is the same memory");
+
+  const list = await L("GET", "/link/memories?pitcrew_id=health");
+  assert.deepEqual(list.json.memories.map((x) => [x.id, x.text, x.scope, x.area, x.source]), [[a.json.id, "Allergic to penicillin", "health", "health", "pitcrew:Health"]]);
+  assert.ok(typeof list.json.memories[0].created_at === "number");
+  assert.deepEqual((await L("GET", "/link/sync?pitcrew_id=health")).json.memories, [{ id: a.json.id, text: "Allergic to penicillin" }]);
+  assert.ok(!(await L("GET", "/link/memories?pitcrew_id=bills")).json.memories.some((x) => x.id === a.json.id), "another member never sees it");
+
+  const b = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Allergic to penicillin and amoxicillin", supersedes: a.json.id });
+  assert.equal(b.json.status, "accepted");
+  assert.equal((await req("GET", `/api/memories/${a.json.id}`, undefined, { cookie })).json.status, "superseded");
+  assert.equal((await req("GET", `/api/memories/${b.json.id}`, undefined, { cookie })).json.supersedes, a.json.id);
+  const theirs = (await L("POST", "/link/import/memories", { pitcrew_id: "bills", items: [{ text: "Water bill is quarterly" }] })).json.ids[0];
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "x", supersedes: theirs })).status, 400, "only its own memories");
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "y", supersedes: a.json.id })).status, 400, "only active ones");
+
+  const u = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Dr Rao moved clinics", untrusted: true });
+  assert.equal(u.json.status, "held");
+  assert.ok(u.json.reasons.includes("Saved during a Pitcrew turn that read untrusted content"));
+  const inbox = (await L("GET", "/link/inbox")).json.proposals.find((p) => p.id === u.json.id);
+  assert.deepEqual([inbox.held, inbox.scope], [true, "health"]);
+
+  const d = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Blood group is O+", by: "driver" });
+  const dm = (await req("GET", `/api/memories/${d.json.id}`, undefined, { cookie })).json;
+  assert.deepEqual([dm.source.kind, dm.source.label], ["you", "Added in Pitcrew"]);
+  assert.ok((await L("GET", "/link/memories?pitcrew_id=health")).json.memories.some((x) => x.id === d.json.id), "yours, filed under the member");
+  const over = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Blood group is B+", supersedes: d.json.id });
+  assert.equal(over.json.status, "held", "a member rewriting what you added waits for you");
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "nobody", text: "z" })).status, 404);
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: " " })).status, 400);
+});
+
+test("forget: own memories only", async () => {
+  const mine = (await L("GET", "/link/memories?pitcrew_id=health")).json.memories[0].id;
+  const theirs = (await L("GET", "/link/memories?pitcrew_id=bills")).json.memories[0].id;
+  assert.equal((await L("POST", `/link/memories/${theirs}/forget`, { pitcrew_id: "health" })).status, 404);
+  const r = await L("POST", `/link/memories/${mine}/forget`, { pitcrew_id: "health" });
+  assert.deepEqual([r.status, r.json], [200, { ok: true }]);
+  assert.equal((await req("GET", `/api/memories/${mine}`, undefined, { cookie })).json.status, "forgotten");
+  assert.ok(!(await L("GET", "/link/memories?pitcrew_id=health")).json.memories.some((x) => x.id === mine));
+  const trace = (await req("GET", "/api/trace", undefined, { cookie })).json;
+  assert.ok(trace.some((t) => t.action === "forget" && t.target === mine && t.who === "Pitcrew"));
+});
+
+test("episodes and imports land in the member's home scope and area", async () => {
+  const at = Date.UTC(2026, 8, 30, 6);
+  const e = await L("POST", "/link/episodes", { pitcrew_id: "health", text: "Booked a blood test for Friday", at, outputs: [{ kind: "thread", ref: "t1", label: "Blood test" }] });
+  assert.deepEqual([e.status, e.json.status], [200, "accepted"]);
+  assert.match(e.json.id, /^j/);
+  assert.equal(gitLog()[0], "journal: Booked a blood test for Friday");
+  const future = await L("POST", "/link/episodes", { pitcrew_id: "health", text: "Clock skew", at: Date.now() + 365 * 86400000 });
+  assert.equal(future.status, 200);
+  assert.equal((await L("POST", "/link/episodes", { pitcrew_id: "health", text: "" })).status, 400);
+
+  const im = await L("POST", "/link/import/memories", { pitcrew_id: "health", items: [{ text: "Takes vitamin D weekly" }] });
+  const m = (await req("GET", `/api/memories/${im.json.ids[0]}`, undefined, { cookie })).json;
+  assert.deepEqual([m.scope, m.area], ["health", "health"]);
+  const art = await L("POST", "/link/import/artifacts", { pitcrew_id: "health", title: "Lab report", kind: "report", mime: "application/pdf", content_base64: Buffer.from("%PDF lab").toString("base64") });
+  assert.equal((await req("GET", `/api/artifacts/${art.json.id}`, undefined, { cookie })).json.scope, "health");
+});

@@ -26,11 +26,11 @@ export function importMemories(link: Agent, m: Member, items: { text: string; cr
     let duplicates = 0;
     for (const it of items) {
       const text = it.text.trim(), key = norm(text);
-      const dup = made.get(key) ?? one<{ id: string }>("SELECT id FROM docs WHERE kind='memory' AND norm=? AND area=? AND scope='personal' ORDER BY status='active' DESC LIMIT 1", key, m.area)?.id;
+      const dup = made.get(key) ?? one<{ id: string }>("SELECT id FROM docs WHERE kind='memory' AND norm=? AND area=? AND scope=? ORDER BY status='active' DESC LIMIT 1", key, m.area, m.scope)?.id;
       if (dup) { duplicates++; ids.push(dup); continue; }
       const t = when(it.created_at);
       const mem: Omit<Memory, "reads"> = {
-        id: uid("m"), text, area: m.area, project: null, entities: [], scope: "personal", source: sourceFor(m, t), trust: "trusted", status: "active",
+        id: uid("m"), text, area: m.area, project: null, entities: [], scope: m.scope, source: sourceFor(m, t), trust: "trusted", status: "active",
         observed_at: t, valid_from: null, valid_until: null, supersedes: null, superseded_by: null, created_at: t, accepted_at: now(),
       };
       const rel = memoryPath(mem);
@@ -41,7 +41,7 @@ export function importMemories(link: Agent, m: Member, items: { text: string; cr
       await commit(paths, `import: ${paths.length} memories from pitcrew:${m.agent.name}`);
       indexPaths(paths);
     }
-    trace(actorOf(link), "import", "memories", "ok", "personal", `${paths.length} from ${m.agent.name}, ${duplicates} already known`);
+    trace(actorOf(link), "import", "memories", "ok", m.scope, `${paths.length} from ${m.agent.name}, ${duplicates} already known`);
     return { accepted: paths.length, duplicates, ids };
   });
 }
@@ -56,10 +56,10 @@ export function importArtifact(link: Agent, m: Member, a: { title: string; kind:
     const mime = MIMES[a.mime] ? a.mime : "application/octet-stream", ext = MIMES[mime] || "bin", t = when(a.created_at);
     const id = uid("art"), rel = `artifacts/${id}.md`, file = `artifacts/files/${sha}.${ext}`;
     if (!existsSync(join(VAULT, file))) writeRaw(file, bytes);
-    writeDoc(rel, { fm: { id, title: a.title, kind: a.kind, area: m.area, scope: "personal", source: sourceFor(m, t), mime, size: bytes.length, sha256: sha, ext, created_at: t }, body: "" });
+    writeDoc(rel, { fm: { id, title: a.title, kind: a.kind, area: m.area, scope: m.scope, source: sourceFor(m, t), mime, size: bytes.length, sha256: sha, ext, created_at: t }, body: "" });
     await commit([rel, file], `artifact: ${a.title.replace(/\s+/g, " ").slice(0, 60)}`);
     indexPaths([rel]);
-    trace(actorOf(link), "import", id, "ok", "personal", `artifact from ${m.agent.name}`);
+    trace(actorOf(link), "import", id, "ok", m.scope, `artifact from ${m.agent.name}`);
     return { status: "accepted" as const, id, reasons: [] as string[] };
   });
 }

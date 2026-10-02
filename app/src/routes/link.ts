@@ -14,6 +14,8 @@ import { trace } from "../trace.js";
 import { memberOf, upsertMember } from "../link/members.js";
 import { importArtifact, importMemories } from "../link/imports.js";
 import { syncBundle } from "../link/sync.js";
+import { episode, forgetOwn, linkConnections, ownMemories, remember } from "../link/memories.js";
+import { CONN_ID } from "../gateway/store.js";
 
 type Env = { Variables: { agent: Agent } };
 const PITCREW = { id: null, name: "you (in Pitcrew)" };
@@ -65,6 +67,7 @@ export const link = new Hono<Env>()
     const b = await body(c, z.object({
       pitcrew_id: PID, name: z.string().trim().min(1).max(60),
       hue: z.string().regex(/^[#a-zA-Z0-9(),.% -]{1,40}$/).nullable().optional(), area: z.string().regex(/^[a-z0-9][a-z0-9-]{0,59}$/).nullable().optional(),
+      scope: z.enum(["personal", "finance", "health"]).optional(), connections: z.array(z.string().regex(CONN_ID)).max(20).optional(),
     }));
     return c.json(upsertMember(c.get("agent"), b));
   })
@@ -82,7 +85,33 @@ export const link = new Hono<Env>()
   .get("/link/sync", (c) => {
     const pid = PID.safeParse(c.req.query("pitcrew_id"));
     if (!pid.success) throw httpErr(400, "Invalid pitcrew_id");
-    return c.json(syncBundle(memberOf(pid.data).agent));
+    return c.json(syncBundle(memberOf(pid.data)));
+  })
+  .get("/link/connections", (c) => c.json({ connections: linkConnections() }))
+  .get("/link/memories", (c) => {
+    const pid = PID.safeParse(c.req.query("pitcrew_id"));
+    if (!pid.success) throw httpErr(400, "Invalid pitcrew_id");
+    const m = memberOf(pid.data);
+    return c.json({ scope: m.scope, memories: ownMemories(m) });
+  })
+  .post("/link/memories", async (c) => {
+    const b = await body(c, z.object({
+      pitcrew_id: PID, text: z.string().trim().min(1).max(2000), supersedes: z.string().regex(ID).nullable().optional(),
+      ref: z.string().max(120).optional(), untrusted: z.boolean().optional(), by: z.enum(["member", "driver"]).optional(),
+    }));
+    return c.json(await remember(c.get("agent"), memberOf(b.pitcrew_id), b));
+  })
+  .post("/link/memories/:id/forget", async (c) => {
+    const id = c.req.param("id"), b = await body(c, z.object({ pitcrew_id: PID }));
+    if (!ID.test(id)) throw httpErr(404, "No such memory");
+    return c.json(await forgetOwn(c.get("agent"), memberOf(b.pitcrew_id), id));
+  })
+  .post("/link/episodes", async (c) => {
+    const b = await body(c, z.object({
+      pitcrew_id: PID, text: z.string().trim().min(1).max(4000), at,
+      outputs: z.array(z.object({ kind: z.string().min(1).max(20), ref: z.string().min(1).max(200), label: z.string().max(200) })).max(20).optional(),
+    }));
+    return c.json(await episode(c.get("agent"), memberOf(b.pitcrew_id), b));
   })
   .all("/link/*", (c) => c.json({ error: "Not found" }, 404));
 

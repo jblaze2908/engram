@@ -45,6 +45,15 @@ and its token is pasted into Pitcrew's Settings. Link API (bearer, link tokens o
   `{kind:"agent", label:"pitcrew:<name>"}`, trusted, area from the member's `area` (default `home`). Dedupe applies.
 - `POST /link/import/artifacts {pitcrew_id, title, kind, mime, content_base64, created_at}` → accepted, kept copy.
 - `GET  /link/sync?pitcrew_id=` → `SyncBundle` for that member.
+- Link v2 (2026-10-02): `POST /link/members` also takes `scope` (personal | finance | health: the member's home scope,
+  where its memories, artifacts and journal land; area follows it) and `connections` (read tools of those connections,
+  granted once, on creation). A scope change adds that scope's read + propose grant and never removes one.
+  `GET /link/connections` → `{connections:[{id,name,status,detail,read,write}]}`. `/link/sync` adds `memories`
+  (the member's own, ≤60) and `scope`. `GET /link/memories?pitcrew_id=` → `{scope, memories:[{id,text,scope,area,created_at,source}]}`
+  (own = `source.agent` is the member). `POST /link/memories {pitcrew_id,text,supersedes?,ref?,untrusted?,by?}` →
+  accepted directly from a clean turn; `untrusted`, or a member rewriting something you added, goes through the
+  write path and is held. `POST /link/memories/:id/forget {pitcrew_id}` (own only). `POST /link/episodes
+  {pitcrew_id,text,at?,outputs?}` → a journal entry.
 Engram marks `pitcrew_linked: true` in Status once a link token has been used in the last 10 minutes.
 
 Pitcrew side: Settings → Engram (URL + link token, stored encrypted like provider keys); a 60 s poll mirrors
