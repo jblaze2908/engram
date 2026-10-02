@@ -44,6 +44,13 @@ export function App() {
     return () => window.removeEventListener(UNAUTHORIZED, on);
   }, []);
 
+  // /artifacts/<id>/open sends you here to sign in first; once in, go back to it (that one path only).
+  useEffect(() => {
+    if (gate.k !== "ready") return;
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next && /^\/artifacts\/[A-Za-z0-9_-]{1,80}\/open(\?v=\d{1,6})?$/.test(next)) window.location.replace(next);
+  }, [gate.k]);
+
   if (gate.k === "loading") return null;
   if (gate.k === "setup") return <Setup onDone={check} />;
   if (gate.k === "login") return <Login onDone={check} />;

@@ -38,11 +38,15 @@ export interface Entity { id: string; kind: EntityKind; name: string; summary: s
 export interface EntityView { entity: Entity; memories: Memory[]; linked: { kind: string; id: string; label: string }[]; readers: { agent: string; count: number }[] }
 
 export type ArtifactKind = "receipt" | "statement" | "report" | "screenshot" | "plan" | "document";
+/** One published version of an artifact's file; the current one is the last. */
+export interface ArtifactVersion { v: number; sha256: string; ext: string; mime: string; size: number | null; at: number; by: string }
+/** A single file, private by default: url opens it for you on the artifacts host; public_url, when set, opens it for anyone. */
 export interface Artifact {
-  id: string; title: string; kind: ArtifactKind; area: string; scope: Scope; source: Source;
-  mime?: string | null; size?: number | null; sha256?: string | null; kept: boolean; url?: string | null;
-  created_at: number; memories: string[];
+  id: string; title: string; kind: ArtifactKind | string; area: string; project?: string | null; scope: Scope; source: Source; description?: string;
+  versions: ArtifactVersion[]; version: number; mime?: string | null; size?: number | null; sha256?: string | null; kept: boolean;
+  url: string; public_url: string | null; created_at: number; updated_at?: number; memories: string[];
 }
+export interface PublishResult { id: string; version: number; url: string; public_url: string | null; status: "published" | "share_pending" }
 
 /** A journal entry (the spec calls it an episode): what you or an agent did. Describes, never asserts. */
 export interface Episode { id: string; at: number; who: string; text: string; area: string; project?: string | null; outputs: { kind: string; ref: string; label: string }[] }
@@ -67,7 +71,7 @@ export interface Agent {
 export interface NewToken { agent: Agent; token: string }
 
 /** vault_conflict: Obsidian and Engram both changed a vault file (vault sync); accept takes the Obsidian version. */
-export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change" | "vault_conflict" | "tool_call";
+export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change" | "vault_conflict" | "tool_call" | "share";
 export interface Proposal {
   id: string; kind: ProposalKind; agent: string | null; title: string; scope: Scope; area: string;
   /** The proposed record as it would be stored. */

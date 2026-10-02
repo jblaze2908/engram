@@ -8,7 +8,9 @@ import { now, uid, norm, httpErr, VAULT } from "../config.js";
 import { one } from "../db.js";
 import { writeDoc, writeRaw, commit, withVault } from "../vault.js";
 import { indexPaths } from "../index.js";
-import { MIMES, memoryFm, memoryPath } from "../proposals.js";
+import { memoryFm, memoryPath } from "../proposals.js";
+import { publish } from "../artifacts/app.js";
+import { MIME, extOf } from "../artifacts/shared.js";
 import { trace } from "../trace.js";
 import { actorOf, type Member } from "./members.js";
 
@@ -46,20 +48,20 @@ export function importMemories(link: Agent, m: Member, items: { text: string; cr
   });
 }
 
-export function importArtifact(link: Agent, m: Member, a: { title: string; kind: ArtifactKind; mime: string; content_base64: string; created_at?: number }) {
-  return withVault(async () => {
-    const bytes = Buffer.from(a.content_base64, "base64");
-    if (!bytes.length || bytes.length > MAX_FILE) throw httpErr(413, "File must be under 6 MB");
-    const sha = createHash("sha256").update(bytes).digest("hex");
-    const dup = one<{ id: string }>("SELECT id FROM docs WHERE kind='artifact' AND json_extract(data,'$.sha256')=?", sha);
-    if (dup) return { status: "accepted" as const, id: dup.id, reasons: [] as string[] };
-    const mime = MIMES[a.mime] ? a.mime : "application/octet-stream", ext = MIMES[mime] || "bin", t = when(a.created_at);
-    const id = uid("art"), rel = `artifacts/${id}.md`, file = `artifacts/files/${sha}.${ext}`;
-    if (!existsSync(join(VAULT, file))) writeRaw(file, bytes);
-    writeDoc(rel, { fm: { id, title: a.title, kind: a.kind, area: m.area, scope: m.scope, source: sourceFor(m, t), mime, size: bytes.length, sha256: sha, ext, created_at: t }, body: "" });
-    await commit([rel, file], `artifact: ${a.title.replace(/\s+/g, " ").slice(0, 60)}`);
-    indexPaths([rel]);
-    trace(actorOf(link), "import", id, "ok", m.scope, `artifact from ${m.agent.name}`);
-    return { status: "accepted" as const, id, reasons: [] as string[] };
-  });
+// The one-shot move: a Library file Engram already holds (any version of an active artifact) isn't published twice.
+export async function importArtifact(link: Agent, m: Member, a: { title: string; kind: ArtifactKind; mime: string; content_base64: string; created_at?: number }) {
+  const sha = createHash("sha256").update(Buffer.from(a.content_base64, "base64")).digest("hex");
+  const dup = one<{ id: string }>("SELECT d.id FROM docs d, json_each(d.data,'$.versions') v WHERE d.kind='artifact' AND d.status='active' AND json_extract(v.value,'$.sha256')=?", sha);
+  if (dup) return { status: "accepted" as const, id: dup.id, reasons: [] as string[] };
+  const ext = Object.entries(MIME).find(([, x]) => x === a.mime)?.[0];
+  const filename = extOf(a.title) !== "bin" || !ext ? a.title : `${a.title}.${ext}`;
+  const r = await linkPublish(link, m, { title: a.title, filename, content_base64: a.content_base64, kind: a.kind });
+  return { status: "accepted" as const, id: r.id, reasons: [] as string[] };
+}
+
+// POST /link/artifacts: the member agent publishes into its home scope and area; versions only its own artifacts.
+export function linkPublish(link: Agent, m: Member, b: { title: string; filename: string; content_base64: string; id?: string | null; description?: string; public?: boolean; kind?: string; ref?: string }) {
+  const source: Source = { kind: "agent", label: `pitcrew:${m.agent.name}`, agent: m.agent.id, ref: b.ref ?? null, at: now() };
+  trace(actorOf(link), "link.publish", b.id || "artifact", "ok", m.scope, `${m.agent.name}: ${b.filename.slice(0, 60)}`);
+  return publish({ agent: m.agent, actor: actorOf(m.agent), source }, { ...b, scope: m.scope, area: m.area });
 }

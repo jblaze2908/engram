@@ -22,7 +22,38 @@ services:
     env_file: [/etc/engram/engram.env]
     environment:
       ENGRAM_HOST: engram.example.com
+      ENGRAM_ARTIFACTS_HOST: artifacts.example.com
       HOME: /srv/engram/home
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # The artifacts host: published files only. Sees just the vault's artifacts folder and the manifest + view key that
+  # engram-app writes, both read-only; no database, master key, vault index or env secrets.
+  artifacts:
+    image: engram-app:${ENGRAM_TAG:-1}
+    container_name: engram-artifacts
+    restart: unless-stopped
+    user: "1600:1600"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges]
+    command: ["node", "dist/src/artifacts/server.js"]
+    mem_limit: 256m
+    pids_limit: 64
+    ports:
+      - "172.17.0.1:8345:8345"
+    volumes:
+      - /srv/engram/vault/artifacts:/srv/engram/vault/artifacts:ro
+      - /srv/engram/artifacts-serve:/srv/engram/artifacts-serve:ro
+    environment:
+      ARTIFACTS_PORT: "8345"
+      ENGRAM_HOST: engram.example.com
+      ENGRAM_ARTIFACTS_HOST: artifacts.example.com
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8345/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

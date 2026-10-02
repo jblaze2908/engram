@@ -20,6 +20,7 @@ import { gateway } from "./routes/gateway.js";
 import { leftovers } from "./routes/leftovers.js";
 import { startGateway } from "./gateway/upstream.js";
 import { PRIVACY_HTML } from "./privacy.js";
+import { writeManifest } from "./artifacts/app.js";
 
 const WEB = new URL("../web/", import.meta.url).pathname;
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -74,6 +75,7 @@ export async function boot() {
   startJobs();
   startVaultSync();
   startGateway();
+  writeManifest();
   loadWeb();
 }
 

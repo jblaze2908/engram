@@ -1,7 +1,7 @@
 import type {
   Agent, AreaView, Artifact, ArtifactKind, CatalogEntry, CompiledProfile, ConnectionAuth, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Digest, Entity, EntityKind,
   EntityView, Grant, JournalView, Memory, MemoryStatus, NewConnection, NewToken, OAuthClient, OAuthConsent, ProfileFile, ProfileTarget, Proposal, Provenance,
-  Scope, Session, Skill, Status, ToolPolicy, TraceRow,
+  PublishResult, Scope, Session, Skill, Status, ToolPolicy, TraceRow,
 } from "../../../shared/types";
 
 export class ApiError extends Error {
@@ -82,7 +82,11 @@ export const api = {
 
   artifacts: (kind?: ArtifactKind) => request<Artifact[]>("GET", `/api/artifacts${qs({ kind })}`),
   artifact: (id: string) => request<Artifact>("GET", `/api/artifacts/${enc(id)}`),
-  artifactFileUrl: (id: string) => `/api/artifacts/${enc(id)}/file`,
+  artifactFileUrl: (id: string, v?: number) => `/api/artifacts/${enc(id)}/file${v ? `?v=${v}` : ""}`,
+  artifactOpenUrl: (id: string, v?: number) => `/artifacts/${enc(id)}/open${v ? `?v=${v}` : ""}`,
+  publishArtifact: (b: { title: string; filename: string; content_base64: string; id?: string; scope?: Scope; description?: string }) => request<PublishResult>("POST", "/api/artifacts", b),
+  shareArtifact: (id: string) => request<{ public_url: string }>("POST", `/api/artifacts/${enc(id)}/share`),
+  unshareArtifact: (id: string) => request<{ ok: true }>("DELETE", `/api/artifacts/${enc(id)}/share`),
 
   journal: (day?: string) => request<JournalView>("GET", `/api/journal${qs({ day })}`),
   profile: () => request<{ files: ProfileFile[]; compiled: CompiledProfile[] }>("GET", "/api/profile"),

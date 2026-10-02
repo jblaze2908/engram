@@ -9,6 +9,7 @@ BRANCH="${DEPLOY_BRANCH:-main}"
 STATE_DIR="${ENGRAM_STATE_DIR:-/var/lib/engram}"
 ENV_FILE="${ENGRAM_ENV_FILE:-/etc/engram/engram.env}"
 HEALTH_URL="${ENGRAM_HEALTH_URL:-http://172.17.0.1:8340/healthz}"
+ARTIFACTS_HEALTH_URL="${ENGRAM_ARTIFACTS_HEALTH_URL:-http://172.17.0.1:8345/healthz}"
 DATA=/srv/engram
 export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -i /root/.ssh/engram_deploy -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes}"
 
@@ -33,7 +34,7 @@ git fetch --prune origin "$BRANCH"
 target_commit="$(git rev-parse "origin/$BRANCH")"
 short="${target_commit:0:8}"
 
-running() { docker ps --format '{{.Names}}' | grep -qx engram-app; }
+running() { docker ps --format '{{.Names}}' | grep -qx engram-app && docker ps --format '{{.Names}}' | grep -qx engram-artifacts; }
 if [[ "$deployed_commit" == "$target_commit" ]] && running; then exit 0; fi
 # Don't rebuild a commit that already failed; a new push clears it.
 if [[ "$(cat "$STATE_DIR/failed-commit" 2>/dev/null || true)" == "$target_commit" ]]; then exit 0; fi
@@ -48,6 +49,8 @@ fi
 
 # The container runs as 1600 with a read-only root; only the data directory is writable.
 install -d -o 1600 -g 1600 -m 700 "$DATA" "$DATA/home"
+# Bind sources for engram-artifacts: created here as 1600, or Docker would make them root-owned and the app couldn't write.
+install -d -o 1600 -g 1600 -m 700 "$DATA/artifacts-serve" "$DATA/vault/artifacts" "$DATA/vault/artifacts/files"
 
 # Build before touching the running app, so a broken build never takes it down.
 docker build -q -t "engram-app:$short" app >/dev/null || reject "app image build failed"
@@ -61,7 +64,7 @@ fi
 
 next="$STATE_DIR/next.env"
 printf 'ENGRAM_TAG=%s\n' "$short" >"$next"
-healthy() { for _ in {1..30}; do curl --fail --silent -m 5 "$HEALTH_URL" >/dev/null && return 0; sleep 2; done; return 1; }
+healthy() { for _ in {1..30}; do curl --fail --silent -m 5 "$HEALTH_URL" >/dev/null && curl --fail --silent -m 5 "$ARTIFACTS_HEALTH_URL" >/dev/null && return 0; sleep 2; done; return 1; }
 rollback() {
   echo "Rolling back to $(cat "$RELEASE" 2>/dev/null | tr '\n' ' ')" >&2
   if [[ -f "$RELEASE" ]]; then compose "$RELEASE" up --detach --remove-orphans || true; fi

@@ -15,6 +15,8 @@ import { proposed } from "./notify.js";
 import { useRemoteVersion } from "./vaultsync.js";
 import { decideToolChange } from "./gateway/store.js";
 import { decideToolCall } from "./gateway/gate.js";
+import { decideShare, writeManifest } from "./artifacts/app.js";
+import { mimeOf } from "./artifacts/shared.js";
 
 export type ProposeInput = {
   kind: ProposalKind | "episode"; text?: string; title?: string; name?: string; summary?: string; description?: string; body?: string;
@@ -179,7 +181,8 @@ function write(p: Proposal, t: number): { paths: string[]; msg: string } {
       if (!existsSync(join(VAULT, file))) writeRaw(file, readFileSync(join(PENDING, p.id)));
       paths.push(file);
     }
-    writeDoc(rel, { fm: { id: d.id, title: d.title, kind: d.kind, area: d.area, scope: d.scope, source: p.source, mime: d.mime, size: d.size, sha256: d.sha256, ext, created_at: t }, body: "" });
+    const versions = d.sha256 ? [{ v: 1, sha256: d.sha256, ext, mime: d.mime || mimeOf(ext), size: d.size, at: t, by: p.source.label }] : [];
+    writeDoc(rel, { fm: { id: d.id, title: d.title, kind: d.kind, area: d.area, scope: d.scope, source: p.source, status: "active", created_at: t, updated_at: t, versions }, body: "" });
     return { paths, msg: `artifact: ${short(d.title)}` };
   }
   const rel = `skills/${d.name}/SKILL.md`, prev = docById(`skill:${d.name}`);
@@ -191,6 +194,13 @@ function write(p: Proposal, t: number): { paths: string[]; msg: string } {
 export async function decide(id: string, decision: Decision, who: Actor = YOU): Promise<Proposal> {
   // A tool call touches no vault file and may wait on the upstream for a minute, so it runs outside the vault lock.
   if (one("SELECT 1 FROM proposals WHERE id=? AND kind='tool_call'", id)) { await decideToolCall(id, decision, who); return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!); }
+  // A public link touches no vault file: SQLite and the serving manifest only.
+  const sh = one("SELECT * FROM proposals WHERE id=? AND kind='share'", id);
+  if (sh) {
+    if (sh.status !== "open") throw httpErr(409, "Already decided");
+    decideShare(sh, decision === "accept", who);
+    return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!);
+  }
   return withVault(async () => {
     const r = one("SELECT * FROM proposals WHERE id=?", id);
     if (!r) throw httpErr(404, "No such proposal");
@@ -203,6 +213,7 @@ export async function decide(id: string, decision: Decision, who: Actor = YOU): 
       indexPaths(paths);
       run("UPDATE proposals SET status='accepted', decided_at=? WHERE id=?", t, id);
       trace(who, "accept", id, "ok", p.scope, short(p.title));
+      if (p.kind === "artifact") writeManifest();
     } else {
       run("UPDATE proposals SET status='rejected', decided_at=? WHERE id=?", t, id);
       trace(who, decision, id, "ok", p.scope, short(p.title));

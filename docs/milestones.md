@@ -129,3 +129,55 @@ skill names + descriptions (no bodies) for Pitcrew's instructions; Pitcrew stops
   reciprocal rank fusion (k = 60). Model files fetched at Docker build from a pinned Hugging Face revision with sha256
   checks (no network at runtime). An eval set (`app/tests/search-eval.json`, ≥ 40 query → expected id pairs incl. synonyms)
   reports recall@5 and MRR for BM25 alone vs hybrid; numbers recorded in the spec.
+
+## Artifacts: shareable single files (2026-10-02)
+
+An artifact is one file (markdown, HTML, PDF, image, anything up to 10 MB), private by default, with its own link.
+Receipts and statements from before are simply private artifacts now.
+
+- **Vault:** `artifacts/<id>.md` holds title, kind, area, project, scope, source, `versions: [{ v, sha256, ext, mime, size, at, by }]`
+  (current = last) and an optional description as the body; bytes stay in `artifacts/files/<sha>.<ext>`. Older entries
+  (top-level `sha256`/`ext`/`mime`) read as version 1. Text artifacts (md, txt, csv, json, html) index up to 20 KB of
+  their current version for search.
+- **Publishing:** MCP `publish({ title, filename, text | content_base64, id?, description?, area?, project?, scope?, public? })`
+  → `{ id, version, url, public_url, status }`. Needs a propose grant for the scope; `id` makes a new version and only
+  the publishing agent may use it. Pitcrew: `POST /link/artifacts` (same shape, member scope and area). You: the
+  Artifacts screen's "Publish a file" (`POST /api/artifacts`).
+- **Public links:** SQLite only (`artifact_shares`; never the vault, which mirrors to GitHub). An agent's `public: true`
+  becomes a held `share` inbox item (also a Pitcrew pit stop); you make or revoke a link on the Artifacts screen. A
+  revoked slug never comes back; sharing again makes a new 128-bit slug. Forgetting an artifact revokes its link.
+- **Serving:** its own container, `engram-artifacts` (`dist/src/artifacts/server.js`, `172.17.0.1:8345`), read-only
+  mounts of `vault/artifacts` and `artifacts-serve` (manifest + view key, both written by engram-app). No DB, no master
+  key, no env secrets.
+  - `/a/<id>`: private. Without a cookie it sends you to `https://engram…/artifacts/<id>/open`, which needs your
+    session and comes back with a 12 h view token, swapped for a host-only cookie scoped to `/a/<id>`.
+  - `/s/<slug>`: public. `?v=n` any version, `?download=1` a download.
+  - HTML runs in a sandbox with an opaque origin and no network (`connect-src 'none'`, images only `data:`/`blob:`,
+    scripts and styles inline or from cdnjs, jsDelivr, unpkg, Google Fonts), so a private page can't phone home.
+    Markdown is rendered server-side with raw HTML escaped. PDF inline (a sandbox CSP breaks Chrome's viewer), images
+    and SVG sandboxed, code and data as plain text, anything else a download.
+
+### To put it on the internet (Jai)
+
+1. Cloudflare DNS: `A artifacts.example.com → 203.0.113.10` (the address engram, pitcrew and ntfy resolve to); match their proxy setting.
+2. Traefik, `/opt/sso-proxy/config/traefik/dynamic_config.yml` (back it up first, as for the other hosts):
+
+   ```yaml
+   # http.routers
+       artifacts-router:
+         rule: "Host(`artifacts.example.com`)"
+         service: artifacts-service
+         entryPoints:
+           - websecure
+         tls:
+           certResolver: letsencrypt
+   # http.services
+       artifacts-service:
+         loadBalancer:
+           servers:
+             - url: "http://172.17.0.1:8345"
+   ```
+
+3. A different hostname later: change `ENGRAM_ARTIFACTS_HOST` for both services in `deploy/compose.yml` (engram-app
+   reads it for the links it hands out, engram-artifacts for its own redirects) and the router rule. Existing links
+   use the old host, so keep the old router until nobody needs them.

@@ -51,11 +51,11 @@ test("granted tools only, as <conn>__<tool>; search finds them by need", async (
   const r = await grant(reader, ["github/list_issues", "github/search_docs"]);
   assert.deepEqual(r.json.tools, ["github/list_issues", "github/search_docs"]);
   const mine = (await tools(reader.token)).map((t) => t.name).sort();
-  assert.deepEqual(mine, ["get", "github__list_issues", "github__search_docs", "profile", "propose", "search"]);
+  assert.deepEqual(mine, ["get", "github__list_issues", "github__search_docs", "profile", "propose", "publish", "search"]);
   const li = (await tools(reader.token)).find((t) => t.name === "github__list_issues");
   assert.equal(li.description, "GitHub: List issues in a repository.");
   assert.equal(li.inputSchema.properties.repo.type, "string");
-  assert.deepEqual((await tools(nobody.token)).map((t) => t.name).sort(), ["get", "profile", "propose", "search"]);
+  assert.deepEqual((await tools(nobody.token)).map((t) => t.name).sort(), ["get", "profile", "propose", "publish", "search"]);
   const s = await call(reader.token, "search", { query: "issues in a repo" });
   assert.ok(s.data.hits.some((h) => h.kind === "tool" && h.id === "github__list_issues"));
   const none = await call(nobody.token, "search", { query: "issues", kind: "tool" });

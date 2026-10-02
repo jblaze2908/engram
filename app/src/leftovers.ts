@@ -10,6 +10,9 @@ import { indexPaths } from "./index.js";
 import { trace, YOU } from "./trace.js";
 import { decide, memoryFm, memoryPath, toProposal } from "./proposals.js";
 import { docById, memoryById } from "./store.js";
+import { versionsOf } from "./artifacts/shared.js";
+import { revokeShare } from "./artifacts/shares.js";
+import { writeManifest } from "./artifacts/app.js";
 
 const short = (s: string) => s.replace(/\s+/g, " ").slice(0, 60);
 
@@ -70,8 +73,8 @@ export function forgetArtifact(id: string) {
       paths.push(r.path);
     }
     // Two records can share one content-addressed copy; it goes only when no remembered record still points at it.
-    const sha = typeof doc.fm.sha256 === "string" && /^[a-f0-9]{64}$/.test(doc.fm.sha256) ? doc.fm.sha256 : null, ext = /^[a-z0-9]{1,5}$/.test(doc.fm.ext) ? doc.fm.ext : "bin";
-    if (sha && !one("SELECT 1 FROM docs WHERE kind='artifact' AND status='active' AND id!=? AND json_extract(data,'$.sha256')=?", id, sha)) {
+    for (const { sha256: sha, ext } of versionsOf(doc.fm, 0, "")) {
+      if (one("SELECT 1 FROM docs d, json_each(d.data,'$.versions') v WHERE d.kind='artifact' AND d.status='active' AND d.id!=? AND json_extract(v.value,'$.sha256')=?", id, sha)) continue;
       const file = `artifacts/files/${sha}.${ext}`;
       if (existsSync(join(VAULT, file))) { rmSync(join(VAULT, file)); paths.push(file); }
     }
@@ -79,6 +82,9 @@ export function forgetArtifact(id: string) {
     await commit(paths, `forget: ${short(String(doc.fm.title || id))} and ${n} ${n === 1 ? "memory" : "memories"}`);
     indexPaths(paths);
     trace(YOU, "forget", id, "ok", d.scope, `file and ${n} memories`);
+    // Never served again: its public link goes and the manifest drops it.
+    revokeShare(id);
+    writeManifest();
     return { id, memories: n };
   });
 }

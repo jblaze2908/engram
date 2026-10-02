@@ -12,7 +12,7 @@ import { decide, toProposal } from "../proposals.js";
 import { digest } from "../digest.js";
 import { trace } from "../trace.js";
 import { memberOf, upsertMember } from "../link/members.js";
-import { importArtifact, importMemories } from "../link/imports.js";
+import { importArtifact, importMemories, linkPublish } from "../link/imports.js";
 import { syncBundle } from "../link/sync.js";
 import { episode, forgetOwn, linkConnections, ownMemories, remember } from "../link/memories.js";
 import { CONN_ID } from "../gateway/store.js";
@@ -23,6 +23,8 @@ const ARTIFACT_KINDS: [ArtifactKind, ...ArtifactKind[]] = ["receipt", "statement
 const PID = z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/);
 const ID = /^[A-Za-z0-9_:-]{1,120}$/;
 const at = z.number().int().nonnegative().optional();
+// A file up to 10 MB, base64 (4/3 larger, plus line breaks some encoders add).
+const B64 = z.string().min(1).max(14_000_000).regex(/^[A-Za-z0-9+/=\r\n]+$/);
 
 function sameHost(origin: string, host: string | undefined) {
   try { const h = new URL(origin).host; return h === host || h === HOST; } catch { return false; }
@@ -78,9 +80,17 @@ export const link = new Hono<Env>()
   .post("/link/import/artifacts", async (c) => {
     const b = await body(c, z.object({
       pitcrew_id: PID, title: z.string().trim().min(1).max(200), kind: z.enum(ARTIFACT_KINDS), mime: z.string().max(100),
-      content_base64: z.string().min(1).max(8_400_000).regex(/^[A-Za-z0-9+/=\r\n]+$/), created_at: at,
-    }), 9 << 20);
+      content_base64: B64, created_at: at,
+    }), 14 << 20);
     return c.json(await importArtifact(c.get("agent"), memberOf(b.pitcrew_id), b));
+  })
+  .post("/link/artifacts", async (c) => {
+    const b = await body(c, z.object({
+      pitcrew_id: PID, title: z.string().trim().min(1).max(200), filename: z.string().trim().min(1).max(200), content_base64: B64,
+      id: z.string().regex(ID).nullable().optional(), description: z.string().max(2000).optional(), public: z.boolean().optional(),
+      kind: z.string().regex(/^[a-z_]{1,30}$/).optional(), ref: z.string().max(120).optional(),
+    }), 14 << 20);
+    return c.json(await linkPublish(c.get("agent"), memberOf(b.pitcrew_id), b));
   })
   .get("/link/sync", (c) => {
     const pid = PID.safeParse(c.req.query("pitcrew_id"));

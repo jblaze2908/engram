@@ -29,7 +29,7 @@ test("end to end over HTTP: initialize, tools/list, search", async () => {
   assert.equal(init.status, 200);
   assert.equal(init.msg.result.serverInfo.name, "engram");
   const list = await mcp(narrow, "tools/list");
-  assert.deepEqual(list.msg.result.tools.map((t) => t.name).sort(), ["get", "profile", "propose", "search"]);
+  assert.deepEqual(list.msg.result.tools.map((t) => t.name).sort(), ["get", "profile", "propose", "publish", "search"]);
   const s = await call(narrow, "search", { query: "membership" });
   assert.equal(s.isError, false);
   assert.deepEqual(s.data.hits.map((h) => h.title), ["Gym membership at Cult renews in June"], "private is never returned");

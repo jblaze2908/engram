@@ -1,6 +1,7 @@
 // Typed reads over the index. Everything here is SQLite; nothing touches the vault or git.
 import type { Memory, Entity, Artifact, Episode, Skill, ProfileFile, Area, Project, Scope } from "../shared/types.js";
 import { one, all, json, marks, type Row } from "./db.js";
+import { privateUrl, publicUrlOf, liveShares } from "./artifacts/shares.js";
 
 export type DocKind = "memory" | "entity" | "artifact" | "episode" | "skill" | "profile" | "area" | "project";
 export type DocRow = { id: string; kind: DocKind; path: string; title: string; area: string; scope: Scope; status: string; data: string; at: number };
@@ -44,10 +45,10 @@ export function listEntities(f: { kind?: string; area?: string; scopes?: Scope[]
 }
 
 export function artifacts(rows: Row[]): Artifact[] {
-  const mems = new Map<string, string[]>();
+  const mems = new Map<string, string[]>(), shares = new Map(rows.length ? liveShares().map((s) => [s.artifact_id, s.slug]) : []);
   if (rows.length) for (const m of all<{ id: string; ref: string }>(`SELECT id, source_ref ref FROM docs WHERE kind='memory' AND source_ref IN (${marks(rows.length)})`, ...rows.map((r) => r.id)))
     mems.set(m.ref, [...(mems.get(m.ref) || []), m.id]);
-  return rows.map((r) => { const a = json<Artifact & { ext?: string }>(r.data, {}); delete a.ext; return { ...a, ...(r.path ? { path: r.path } : {}), memories: mems.get(r.id) || [] }; });
+  return rows.map((r) => { const a = json<Artifact & { ext?: string }>(r.data, {}); delete a.ext; return { ...a, ...(r.path ? { path: r.path } : {}), memories: mems.get(r.id) || [], url: privateUrl(a.id), public_url: shares.has(a.id) ? publicUrlOf(shares.get(a.id)!) : null }; });
 }
 export function listArtifacts(f: { kind?: string; area?: string; scopes?: Scope[] } = {}) {
   const where = ["kind='artifact'", "status='active'"], args: string[] = [];

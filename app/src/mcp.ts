@@ -12,6 +12,7 @@ import { authenticate, readScopes } from "./agents.js";
 import { trace, type Actor } from "./trace.js";
 import { search, SEARCHABLE } from "./search.js";
 import { propose } from "./proposals.js";
+import { publish } from "./artifacts/app.js";
 import { compile, entityView } from "./views.js";
 import * as S from "./store.js";
 import { registerUpstream, toolHits } from "./gateway/mcp.js";
@@ -37,6 +38,15 @@ const SearchOut = z.object({ hits: z.array(Hit) });
 const GetOut = z.object({ kind: z.string(), record: z.unknown() });
 const ProposeOut = z.object({ status: z.string(), id: z.string().nullable().optional(), reasons: z.array(z.string()) }).passthrough();
 const ProfileOut = z.object({ target: z.string(), text: z.string(), lines: z.number() });
+const Publish = z.object({
+  title: z.string().min(1).max(200), filename: z.string().min(1).max(200).describe("with its extension: report.md, plan.html, statement.pdf"),
+  text: z.string().max(10_000_000).optional().describe("the file's contents, for text files (markdown, HTML, CSV, JSON)"),
+  content_base64: z.string().max(14_000_000).optional().describe("the file's bytes as base64, for anything else; send text or this, not both"),
+  id: z.string().max(80).optional().describe("publish a new version of an artifact you published before"),
+  description: z.string().max(2000).optional(), area: slug.optional(), project: slug.nullable().optional(),
+  scope: z.enum(SCOPES as [Scope, ...Scope[]]).optional(), public: z.boolean().optional().describe("ask the user for a public link anyone can open"),
+});
+const PublishOut = z.object({ id: z.string(), version: z.number(), url: z.string(), public_url: z.string().nullable(), status: z.string() });
 const Propose = z.object({
   kind: z.enum(["memory", "entity", "artifact", "skill", "episode"]),
   text: z.string().max(4000).optional().describe("memory or episode: the claim, or what happened"),
@@ -108,6 +118,10 @@ function server(agent: Agent) {
   s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source, and give an area.", inputSchema: proposeSchema(), outputSchema: ProposeOut }, async (a) => {
     try { return text(await propose(agent, a) as unknown as Record<string, unknown>); } catch (e) { return fail(errMsg(e)); }
   });
+  s.registerTool("publish", { description: "Publish one file (markdown, HTML, PDF, image, anything) as an artifact: a private page the user opens at url. Pass id to publish a new version at the same link. public: true asks the user to make a link anyone can open; until they agree, public_url is null.", inputSchema: Publish, outputSchema: PublishOut }, async (a) => {
+    try { return text(await publish({ agent, actor: who, source: { kind: "agent", label: agent.name, agent: agent.id, ref: null, at: now() } }, a) as unknown as Record<string, unknown>); }
+    catch (e) { trace(who, "publish", a.id || "artifact", "error", null, errMsg(e)); return fail(errMsg(e)); }
+  });
   s.registerTool("profile", { description: "How the user works: the compiled profile for you, within your grants.", inputSchema: z.object({}), outputSchema: ProfileOut }, () => {
     const p = compile(agent.profile, scopes);
     trace(who, "profile", agent.profile, "ok", null, `${p.lines} lines`);
@@ -118,7 +132,7 @@ function server(agent: Agent) {
 }
 
 const handler = createMcpHandler((ctx) => server(ctx.authInfo!.extra!.agent as Agent), {
-  maxRequestBodySize: 9 << 20, onerror: (e) => console.error("mcp:", e.message),
+  maxRequestBodySize: 15 << 20, onerror: (e) => console.error("mcp:", e.message),
 });
 
 // Bearer tokens can't be sent by a browser on its own, but a page script could still try; refuse foreign Origins outright.

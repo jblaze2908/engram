@@ -5,7 +5,7 @@ import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import type { Scope, Decision, MemoryStatus } from "../shared/types.js";
+import type { Scope, Decision, MemoryStatus, ArtifactVersion } from "../shared/types.js";
 import { SCOPES } from "../shared/types.js";
 import { HOST, VAULT, httpErr, type HttpError } from "./config.js";
 import * as A from "./auth.js";
@@ -17,6 +17,9 @@ import { search } from "./search.js";
 import { listTrace } from "./trace.js";
 import { digest, digestWeeks, WEEK_RE } from "./digest.js";
 import { createLinkAgent } from "./link/members.js";
+import * as AR from "./artifacts/app.js";
+import { ARTIFACTS_HOST } from "./artifacts/shared.js";
+import { YOU } from "./trace.js";
 
 const COOKIE = "eg_s";
 const cookie = (header: string | undefined) => (header || "").split(/;\s*/).map((c) => c.split("=")).find(([k]) => k === COOKIE)?.[1];
@@ -34,10 +37,10 @@ const guard = (open: boolean) => createMiddleware(async (c, next) => {
 });
 const anyone = guard(true), you = guard(false);
 
-async function body<S extends z.ZodType>(c: Context, schema: S): Promise<z.output<S>> {
-  if (Number(c.req.header("content-length") || 0) > 1 << 20) throw httpErr(413, "Too large");
+async function body<S extends z.ZodType>(c: Context, schema: S, max = 1 << 20): Promise<z.output<S>> {
+  if (Number(c.req.header("content-length") || 0) > max) throw httpErr(413, "Too large");
   let v: unknown;
-  try { const t = await c.req.text(); if (t.length > 1 << 20) throw httpErr(413, "Too large"); v = t ? JSON.parse(t) : {}; } catch (e) { throw (e as HttpError).status ? e : httpErr(400, "Bad JSON"); }
+  try { const t = await c.req.text(); if (t.length > max) throw httpErr(413, "Too large"); v = t ? JSON.parse(t) : {}; } catch (e) { throw (e as HttpError).status ? e : httpErr(400, "Bad JSON"); }
   const r = schema.safeParse(v);
   if (!r.success) throw httpErr(400, `Invalid ${r.error.issues[0]?.path.join(".") || "request"}`);
   return r.data;
@@ -95,16 +98,40 @@ export const api = new Hono()
   .get("/api/artifacts", you, (c) => c.json(S.listArtifacts({ kind: q(c, "kind", WORD) })))
   .get("/api/artifacts/:id", you, (c) => { const d = S.docById(id(c)); if (!d || d.kind !== "artifact") throw httpErr(404, "No such artifact"); return c.json(S.artifacts([d])[0]); })
   .get("/api/artifacts/:id/file", you, (c) => {
-    // Served only from artifacts/files by the sha in the index, with a type from our own list: no client path reaches disk.
-    const d = S.docById(id(c)), a = d && d.kind === "artifact" ? S.docData<{ sha256: string | null; ext: string; mime: string | null; title: string }>(d) : null;
-    if (!a?.sha256 || !/^[a-f0-9]{64}$/.test(a.sha256) || !Object.values(P.MIMES).includes(a.ext)) throw httpErr(404, "No kept file");
-    const p = join(VAULT, "artifacts", "files", `${a.sha256}.${a.ext}`);
+    // Always a download here (pages open on the artifacts host); the path comes from the index's sha and ext, never the client.
+    const d = S.docById(id(c)), a = d && d.kind === "artifact" ? S.docData<{ title: string; versions: ArtifactVersion[] }>(d) : null;
+    const want = q(c, "v", /^\d{1,6}$/), v = want ? a?.versions?.find((x) => x.v === Number(want)) : a?.versions?.at(-1);
+    if (!a || !v || !/^[a-f0-9]{64}$/.test(v.sha256) || !/^[a-z0-9]{1,8}$/.test(v.ext)) throw httpErr(404, "No kept file");
+    const p = join(VAULT, "artifacts", "files", `${v.sha256}.${v.ext}`);
     if (!existsSync(p)) throw httpErr(404, "No kept file");
-    const mime = Object.entries(P.MIMES).find(([, e]) => e === a.ext)![0];
+    const name = `${a.title.replace(/[^\w .-]+/g, "_").slice(0, 80) || "file"}.${v.ext}`;
     return c.body(readFileSync(p), 200, {
-      "Content-Type": mime, "Content-Disposition": `attachment; filename="${a.sha256.slice(0, 12)}.${a.ext}"`,
+      "Content-Type": "application/octet-stream", "Content-Disposition": `attachment; filename="${name}"`,
       "Content-Security-Policy": "default-src 'none'; sandbox", "Cache-Control": "private, max-age=3600",
     });
+  })
+  // Upload from the web app: you publish, so it's accepted directly; any scope, including private.
+  .post("/api/artifacts", you, async (c) => {
+    const b = await body(c, z.object({
+      title: z.string().trim().min(1).max(200), filename: z.string().trim().min(1).max(200), content_base64: z.string().min(1).max(14_000_000),
+      id: z.string().regex(ID).nullable().optional(), description: z.string().max(2000).optional(), area: z.string().regex(SLUG).optional(), scope: scope.optional(),
+      kind: z.string().regex(/^[a-z_]{1,30}$/).optional(), public: z.boolean().optional(),
+    }), 14 << 20);
+    return c.json(await AR.publish({ agent: null, actor: YOU, source: { kind: "you", label: "Uploaded in Engram", agent: null, ref: null, at: Date.now() } }, b));
+  })
+  .post("/api/artifacts/:id/share", you, (c) => c.json({ public_url: AR.share(id(c), YOU) }))
+  .delete("/api/artifacts/:id/share", you, (c) => { AR.unshare(id(c), YOU); return c.json({ ok: true }); })
+  // Opening a private artifact: your session mints a 12 h view token for the artifacts host. The session cookie is
+  // SameSite=Strict, so a link followed from another site arrives without it; one same-site reload brings it.
+  .get("/artifacts/:id/open", (c) => {
+    const aid = id(c), v = q(c, "v", /^\d{1,6}$/), self = `/artifacts/${encodeURIComponent(aid)}/open${v ? `?v=${v}` : ""}`;
+    if (!authed(c)) {
+      if (c.req.query("r") !== "1") return c.html(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=${self}${v ? "&" : "?"}r=1"><title>Opening…</title>`);
+      return c.redirect(`/?next=${encodeURIComponent(self)}`, 302);
+    }
+    const d = S.docById(aid);
+    if (!d || d.kind !== "artifact" || d.status !== "active") throw httpErr(404, "No such artifact");
+    return c.redirect(`https://${ARTIFACTS_HOST}/a/${encodeURIComponent(aid)}?t=${AR.viewToken(aid)}${v ? `&v=${v}` : ""}`, 302);
   })
 
   .get("/api/journal", you, (c) => c.json(V.journalView(q(c, "day", DAYRE))))

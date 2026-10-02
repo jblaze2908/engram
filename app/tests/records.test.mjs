@@ -22,9 +22,11 @@ test("artifact: kept file served by sha only, never by a client path", async () 
   const [a] = (await req("GET", "/api/artifacts", undefined, { cookie })).json;
   assert.equal(a.kept, true);
   assert.equal(a.size, bytes.length);
-  const f = await fetch(BASE + a.url, { headers: { cookie } });
+  assert.deepEqual([a.version, a.versions.length, a.public_url], [1, 1, null]);
+  const f = await fetch(`${BASE}/api/artifacts/${a.id}/file`, { headers: { cookie } });
   assert.equal(f.status, 200);
-  assert.equal(f.headers.get("content-type"), "application/pdf");
+  assert.equal(f.headers.get("content-type"), "application/octet-stream", "a download here; pages open on the artifacts host");
+  assert.match(f.headers.get("content-disposition"), /^attachment; filename="Airtel bill_ Sep\.pdf"$/);
   assert.match(f.headers.get("content-security-policy"), /sandbox/);
   assert.deepEqual(Buffer.from(await f.arrayBuffer()), bytes);
   for (const bad of ["..%2F..%2Fmaster.key", "%2E%2E", "a%00b"]) assert.equal((await req("GET", `/api/artifacts/${bad}/file`, undefined, { cookie })).status, 404, bad);

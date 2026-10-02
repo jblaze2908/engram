@@ -9,6 +9,7 @@ import { all, one, run, tx, setSetting } from "./db.js";
 import { parseDoc } from "./vault.js";
 import { pruneTrace } from "./trace.js";
 import { SEARCHABLE, putVec, dropVec } from "./search.js";
+import { MAX_FILE, versionsOf } from "./artifacts/shared.js";
 
 export const CONFLICT = /\.conflict-\d+\.md$/;
 const STATUSES: MemoryStatus[] = ["active", "superseded", "held", "forgotten"];
@@ -57,11 +58,15 @@ export function toRecord(rel: string, src: string, mtime: number): Indexed | nul
     return { ...base, id, kind: "memory", title: text.slice(0, 80), scope, status, norm: norm(text), source_ref: source.ref ?? null, at: data.created_at, valid_until: data.valid_until, data };
   }
   if (p[0] === "artifacts" && p.length === 2) {
-    const scope = scopeOf(fm.scope), id = str(fm.id, 60) || name, source = sourceOf(fm.source);
-    const sha = /^[a-f0-9]{64}$/.test(fm.sha256) ? fm.sha256 : null, ext = /^[a-z0-9]{1,5}$/.test(fm.ext) ? fm.ext : "bin";
-    const kept = !!sha && existsSync(join(VAULT, "artifacts/files", `${sha}.${ext}`));
-    const data = { id, title: str(fm.title, 200) || name, kind: str(fm.kind, 20) || "document", area: base.area, scope, source, mime: opt(fm.mime), size: typeof fm.size === "number" ? fm.size : null, sha256: sha, ext, kept, url: kept ? `/api/artifacts/${encodeURIComponent(id)}/file` : null, created_at: num(fm.created_at, mtime) };
-    return { ...base, id, kind: "artifact", title: data.title, scope, status: fm.status === "forgotten" ? "forgotten" : "active", source_ref: source.ref ?? null, at: data.created_at, data };
+    const scope = scopeOf(fm.scope), id = str(fm.id, 60) || name, source = sourceOf(fm.source), created = num(fm.created_at, mtime);
+    // Only versions whose file is in the vault; a version whose copy left the tree can't be served.
+    const versions = versionsOf(fm, created, source.label).filter((v) => existsSync(join(VAULT, "artifacts/files", `${v.sha256}.${v.ext}`)));
+    const cur = versions.at(-1);
+    const data = { id, title: str(fm.title, 200) || name, kind: str(fm.kind, 30) || "document", area: base.area, project: base.project, scope, source, description: body,
+      versions, version: cur?.v ?? 0, mime: cur?.mime ?? null, size: cur?.size ?? null, sha256: cur?.sha256 ?? null, ext: cur?.ext ?? "bin", kept: !!cur,
+      created_at: created, updated_at: num(fm.updated_at, created) };
+    return { ...base, id, kind: "artifact", title: data.title, body: `${body}\n${cur ? excerpt(cur.sha256, cur.ext) : ""}`.trim(), scope,
+      status: fm.status === "forgotten" ? "forgotten" : "active", source_ref: source.ref ?? null, at: created, data };
   }
   if (p[0] === "journal" && p.length === 5) {
     const id = str(fm.id, 60) || name, at = num(fm.at, mtime);
@@ -74,6 +79,19 @@ export function toRecord(rel: string, src: string, mtime: number): Indexed | nul
     return { ...base, id: `skill:${p[1]}`, kind: "skill", title: p[1], body: `${data.description}\n${body}`.trim(), scope: scopeOf(fm.scope, "personal"), at: data.updated_at, data };
   }
   return null;
+}
+
+// Search reads what a text artifact says, not only its title: up to 20 KB of its current version, tags stripped from HTML.
+const EXCERPT = new Set(["md", "markdown", "txt", "csv", "json", "html", "htm"]);
+function excerpt(sha: string, ext: string) {
+  if (!EXCERPT.has(ext)) return "";
+  try {
+    const p = join(VAULT, "artifacts/files", `${sha}.${ext}`);
+    if (statSync(p).size > MAX_FILE) return "";
+    let t = readFileSync(p, "utf8");
+    if (ext === "html" || ext === "htm") t = t.replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ");
+    return t.replace(/\s+/g, " ").slice(0, 20000);
+  } catch { return ""; }
 }
 
 function* walk(dir: string): Generator<string> {

@@ -120,7 +120,8 @@ test("import artifacts: kept copy, deduped by content", async () => {
   assert.equal(a.kept, true);
   assert.equal(a.area, "money");
   assert.equal(a.source.label, "pitcrew:Bills");
-  const file = await req("GET", a.url, undefined, { cookie });
+  assert.match(a.url, /^https:\/\/artifacts\.example\.com\/a\/art_/);
+  const file = await req("GET", `/api/artifacts/${a.id}/file`, undefined, { cookie });
   assert.equal(file.text, "%PDF-1.4 receipt");
   const dup = await L("POST", "/link/import/artifacts", { pitcrew_id: "bills", title: "Same bill", kind: "receipt", mime: "application/pdf", content_base64 });
   assert.equal(dup.json.id, r.json.id);
