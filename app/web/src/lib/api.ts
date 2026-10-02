@@ -1,6 +1,6 @@
 import type {
   Agent, AreaView, Artifact, ArtifactKind, CompiledProfile, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Digest, Entity, EntityKind,
-  EntityView, Grant, JournalView, Memory, MemoryStatus, NewConnection, NewToken, ProfileFile, ProfileTarget, Proposal, Provenance,
+  EntityView, Grant, JournalView, Memory, MemoryStatus, NewConnection, NewToken, OAuthClient, OAuthConsent, ProfileFile, ProfileTarget, Proposal, Provenance,
   Scope, Session, Skill, Status, TraceRow,
 } from "../../../shared/types";
 
@@ -119,5 +119,10 @@ export const api = {
   markWrong: (id: string, reason: string) => request<Memory>("POST", `/api/memories/${enc(id)}/wrong`, { reason }),
   forgetArtifact: (id: string) => request<{ id: string; memories: number }>("POST", `/api/artifacts/${enc(id)}/forget`),
   linkToProfile: (proposal: string, file: string) => request<unknown>("POST", `/api/inbox/${enc(proposal)}/link-profile`, { file }),
+  oauthClients: () => request<OAuthClient[]>("GET", "/api/oauth/clients"),
+  revokeOAuthClient: (id: string) => request<unknown>("POST", `/api/oauth/clients/${enc(id)}/revoke`),
+  consent: (id: string) => request<OAuthConsent>("GET", `/api/oauth/requests/${enc(id)}`),
+  approveConsent: (id: string, p: { grants: Grant[]; profile: ProfileTarget }) => request<{ redirect: string }>("POST", `/api/oauth/requests/${enc(id)}/approve`, p),
+  denyConsent: (id: string) => request<{ redirect: string }>("POST", `/api/oauth/requests/${enc(id)}/deny`),
   undoAccept: (proposal: string) => request<{ forgotten: Memory; restored: Memory | null }>("POST", `/api/inbox/${enc(proposal)}/undo`),
 };

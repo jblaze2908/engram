@@ -84,8 +84,10 @@ bulk read done with direct calls. Record the numbers in the spec. Build `execute
 ## Batch 2 (2026-10-02): no syncing, catalog, approval gate, OAuth server, hybrid search
 
 Decision: nothing is synced to disk. Skills reach clients as an index in the MCP server `instructions`
-(per agent, granted skills, one line each, within ~1,500 characters; overflow says "search kind skill for more") plus
-`get("skill:<name>")`. The profile reaches clients through `profile()` and a 3-line summary in the instructions.
+(per agent, built from SQLite on each `/mcp` request: a 3-line profile gist from the compiled profile within its grants,
+then "Skills you can load with get('skill:<name>'):" with one `name — description` line per granted skill inside its read
+scopes, capped at 1,500 characters with an overflow line pointing at search kind "skill", then the `<conn>__<tool>`
+naming note when it has tool grants) plus `get("skill:<name>")`; the `search` description names skills and tools.
 `/api/agent/sync`, `tools/engram-sync.mjs` and the launchd template are removed; `/link/sync` keeps the profile and
 skill names + descriptions (no bodies) for Pitcrew's instructions; Pitcrew stops writing skill files.
 
@@ -101,11 +103,18 @@ skill names + descriptions (no bodies) for Pitcrew's instructions; Pitcrew stops
   and pushed via ntfy; the agent gets "Waiting for your approval (call <id>). Call get('call:<id>') later for the result."
   Approve runs it once and keeps the result 1 h for `get`. An agent that read untrusted content in the last 10 min has its
   `allow` write tools treated as `ask`.
-- **OAuth server** (for ChatGPT and claude.ai custom connectors): RFC 9728 `/.well-known/oauth-protected-resource`, RFC 8414
-  `/.well-known/oauth-authorization-server`, DCR (RFC 7591) at `/oauth/register`, `/oauth/authorize` (sign in to Engram,
-  then a consent page choosing grants; private never), `/oauth/token` (PKCE S256 required, refresh tokens rotated),
-  `WWW-Authenticate` on 401 from `/mcp`. Each client = one Engram agent (`OAuthClient`), revocable in Agents. Bearer tokens
-  made in the Agents screen keep working.
+- **OAuth server** (for ChatGPT and claude.ai custom connectors; `app/src/oauth/store.ts`, `app/src/routes/oauth.ts`):
+  RFC 9728 `/.well-known/oauth-protected-resource/mcp` (and the root path) naming the issuer `https://<ENGRAM_HOST>`
+  (`ENGRAM_PUBLIC_URL` overrides), RFC 8414 `/.well-known/oauth-authorization-server`, both via the SDK's
+  `oauthMetadataResponse`. DCR (RFC 7591) at `/oauth/register`: redirect URIs https or loopback http, no fragment, matched
+  as exact strings later; 30 registrations an hour; unapproved clients pruned after a day. `/oauth/authorize` needs PKCE
+  S256, parks the request and redirects to `/#/consent/<id>` (the SameSite=Strict session cookie isn't sent on the
+  cross-site hop, so the web app signs you in, then shows the consent screen: client name, redirect host, profile, grants;
+  private never). `/oauth/token`: authorization_code + PKCE, refresh_token rotation (a reused refresh token or code deletes
+  its whole family); access tokens `ega_` 1 h, refresh `egr_` 30 days, client secrets `egs_`, all stored as sha256.
+  `/oauth/revoke` (RFC 7009). `/mcp` 401 carries `WWW-Authenticate: Bearer resource_metadata=…` (SDK challenge). Each
+  approved client is one Engram agent (kind other), listed under "Connected apps" in Agents; Revoke there deletes its
+  tokens and revokes the agent. `eg_` tokens made in Agents keep working.
 - **Hybrid search**: BM25 (FTS5) + Model2Vec `minishlab/potion-base-8M` static embeddings in pure JS (WordPiece tokenizer
   from its tokenizer.json, mean of token vectors, L2-normalised), vectors in SQLite, brute-force cosine, merged by
   reciprocal rank fusion (k = 60). Model files fetched at Docker build from a pinned Hugging Face revision with sha256

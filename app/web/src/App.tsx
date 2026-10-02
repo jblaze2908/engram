@@ -19,6 +19,7 @@ import { Connections } from "./screens/Connections";
 import { Skills } from "./screens/Skills";
 import { Agents } from "./screens/Agents";
 import { DigestPage } from "./screens/Digest";
+import { Consent } from "./screens/Consent";
 import { Empty, Main } from "./components/ui";
 
 type Gate = { k: "loading" } | { k: "setup" } | { k: "login" } | { k: "ready" } | { k: "down"; error: string };
@@ -27,6 +28,7 @@ const INBOX_POLL_MS = 60_000;
 
 export function App() {
   const [gate, setGate] = useState<Gate>({ k: "loading" });
+  const route = useRoute();
 
   const check = useCallback(() => {
     api.session().then(
@@ -46,6 +48,8 @@ export function App() {
   if (gate.k === "setup") return <Setup onDone={check} />;
   if (gate.k === "login") return <Login onDone={check} />;
   if (gate.k === "down") return <Unreachable error={gate.error} onRetry={check} />;
+  // /oauth/authorize parks the request and lands here; sign-in above comes first when needed.
+  if (route.parts[0] === "consent") return <Consent id={route.parts[1] ?? ""} />;
   return <Shell />;
 }
 

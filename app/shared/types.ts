@@ -146,7 +146,6 @@ export interface LinkMember { pitcrew_id: string; name: string; hue?: string | n
 
 // ---------- M5 sync ----------
 
-/** What a Mac or Pitcrew agent writes to disk: the skills granted to it and its compiled profile block. */
 /** What Pitcrew puts in a member's instructions: its compiled profile and the names of skills it may load with get(). Nothing is written to disk. */
 export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; at: number }
 
@@ -163,3 +162,5 @@ export interface CatalogEntry {
 export type ToolPolicy = "allow" | "ask" | "block";
 /** An OAuth client that connected itself to Engram (ChatGPT, claude.ai…); each maps to one Engram agent. */
 export interface OAuthClient { client_id: string; name: string; redirect_uris: string[]; agent: string; created_at: number; last_used_at?: number | null }
+/** A pending /oauth/authorize request, as the consent screen shows it. agent is set when this client already has a live agent. */
+export interface OAuthConsent { id: string; client_id: string; name: string; redirect_uri: string; redirect_host: string; agent: Agent | null; expires_at: number }

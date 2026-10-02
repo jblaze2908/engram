@@ -1,4 +1,4 @@
-// Engram's one process: the web app (static, SPA fallback), /api for your session, /mcp for agents, /healthz.
+// Engram's one process: the web app (static, SPA fallback), /api for your session, /mcp for agents, /oauth for remote MCP clients, /healthz.
 import { createServer, type Server } from "node:http";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, extname } from "node:path";
@@ -13,6 +13,7 @@ import { ensureMasterKey, ensureSetupToken } from "./auth.js";
 import { api } from "./api.js";
 import { mcpRoute } from "./mcp.js";
 import { link } from "./routes/link.js";
+import { oauth } from "./routes/oauth.js";
 import { startJobs } from "./jobs.js";
 import { startVaultSync } from "./vaultsync.js";
 import { gateway } from "./routes/gateway.js";
@@ -50,6 +51,7 @@ app.onError((e: HttpError, c) => {
 app.get("/healthz", (c) => c.json({ ok: true }));
 app.all("/mcp", mcpRoute);
 app.route("/", link);
+app.route("/", oauth);
 app.route("/", api);
 app.route("/", gateway);
 app.route("/", leftovers);

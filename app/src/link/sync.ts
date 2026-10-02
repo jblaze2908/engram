@@ -1,23 +1,13 @@
-// What an agent writes to disk (M5): its granted skills as SKILL.md files and its compiled profile block.
+// What Pitcrew puts in a member's instructions: its compiled profile and the skills it may load with get("skill:<name>").
 import type { Agent, SyncBundle } from "../../shared/types.js";
 import { now } from "../config.js";
-import { all, json, marks } from "../db.js";
 import { readScopes } from "../agents.js";
 import { compile } from "../views.js";
+import { grantedSkills } from "../instructions.js";
 import { trace } from "../trace.js";
 
-// A granted skill outside the agent's read scopes stays on the server: granting a skill never widens a scope.
 export function syncBundle(a: Agent): SyncBundle {
-  const scopes = readScopes(a);
-  const rows = a.skills.length && scopes.length
-    ? all<{ data: string }>(`SELECT data FROM docs WHERE kind='skill' AND title IN (${marks(a.skills.length)}) AND scope IN (${marks(scopes.length)}) ORDER BY title`, ...a.skills, ...scopes)
-    : [];
-  const skills = rows.map((r) => {
-    const s = json<{ name: string; description: string; body: string; version: number }>(r.data, { name: "", description: "", body: "", version: 1 });
-    // Names and descriptions only: clients load a skill's body with get("skill:<name>"), nothing is written to disk.
-    return { name: s.name, description: s.description || s.name, version: s.version || 1 };
-  });
-  const profile = compile(a.profile, scopes);
+  const scopes = readScopes(a), skills = grantedSkills(a, scopes), profile = compile(a.profile, scopes);
   trace({ id: a.id, name: a.name }, "sync", a.profile, "ok", null, `${skills.length} skills, ${profile.lines} profile lines`);
   return { agent: a.name, profile, skills, at: now() };
 }

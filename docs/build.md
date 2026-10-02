@@ -2,7 +2,7 @@
 
 Spec of record: Obsidian `Projects/Engram/Engram - Spec.md`. Designs: Draft canvas `kbyr_xhuW7`, system C1.
 This first cut is milestone **M1** (profile + memories + search + inbox, one MCP endpoint) with every screen
-built. The gateway (upstream OAuth, M2), Pitcrew migration (M3), digest delivery (M4), skills sync to disk (M5)
+built. The gateway (upstream OAuth, M2), Pitcrew migration (M3), digest delivery (M4), skills for agents (M5)
 and Code Mode (M6) come later; their screens show an honest empty state.
 
 ## Layout

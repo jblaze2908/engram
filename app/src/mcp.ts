@@ -1,6 +1,7 @@
-// The one MCP endpoint: stateless Streamable HTTP, bearer-authenticated, four tools. Every call is traced and every
-// read is cut to the caller's read grants; asking for a record outside them is refused and traced, never answered.
-import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+// The one MCP endpoint: stateless Streamable HTTP, bearer-authenticated (eg_ agent tokens or OAuth access tokens), four
+// tools. Every call is traced and every read is cut to the caller's read grants; asking for a record outside them is
+// refused and traced, never answered.
+import { McpServer, OAuthError, OAuthErrorCode, bearerAuthChallengeResponse, createMcpHandler } from "@modelcontextprotocol/server";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Agent, Scope } from "../shared/types.js";
@@ -14,6 +15,9 @@ import { propose } from "./proposals.js";
 import { compile, entityView } from "./views.js";
 import * as S from "./store.js";
 import { registerUpstream, toolHits } from "./gateway/mcp.js";
+import { instructions } from "./instructions.js";
+import { verifyAccess } from "./oauth/store.js";
+import { RESOURCE_METADATA_URL } from "./routes/oauth.js";
 
 // structuredContent lets client-side Code Mode (Pi, programmatic tool calling) get typed values; content keeps plain clients working.
 const text = (v: Record<string, unknown>) => ({ content: [{ type: "text" as const, text: JSON.stringify(v) }], structuredContent: v });
@@ -72,8 +76,8 @@ function getRecord(agent: Agent, who: Actor, scopes: Scope[], id: string) {
 
 function server(agent: Agent) {
   const who: Actor = { id: agent.id, name: agent.name }, scopes = readScopes(agent);
-  const s = new McpServer({ name: "engram", version: "0.1.0" });
-  s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, skills, profile.", inputSchema: Search, outputSchema: SearchOut }, (a) => {
+  const s = new McpServer({ name: "engram", version: "0.1.0" }, { instructions: instructions(agent, scopes) });
+  s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, profile, skills (kind \"skill\"; load one with get) and the upstream tools you may call (kind \"tool\").", inputSchema: Search, outputSchema: SearchOut }, (a) => {
     const { hits, withheld } = a.kind === "tool" ? { hits: [], withheld: 0 } : search({ ...a, kind: a.kind as Exclude<typeof a.kind, "tool">, scopes });
     recordReads(agent, hits.filter((h) => h.kind === "memory").map((h) => h.id));
     if (!a.kind || a.kind === "tool") (hits as unknown[]).push(...toolHits(agent, a.query, a.limit ?? 10));
@@ -102,11 +106,11 @@ export async function mcpRoute(c: Context) {
   const origin = c.req.header("origin");
   if (origin && !sameHost(origin, c.req.header("host"))) return c.json({ error: "Cross-site request refused" }, 403);
   const header = c.req.header("authorization");
-  const agent = authenticate(header);
+  const agent = authenticate(header) ?? verifyAccess(header);
   if (!agent) {
-    if (header) trace({ id: null, name: "unknown" }, "mcp", "auth", "refused", null, "bad or revoked token");
-    c.header("WWW-Authenticate", 'Bearer realm="engram"');
-    return c.json({ error: "Missing or invalid token" }, 401);
+    if (header) trace({ id: null, name: "unknown" }, "mcp", "auth", "refused", null, "bad, expired or revoked token");
+    // resource_metadata points OAuth clients (ChatGPT, claude.ai) at discovery (RFC 9728); eg_ token clients ignore it.
+    return bearerAuthChallengeResponse(new OAuthError(OAuthErrorCode.InvalidToken, "Missing or invalid token"), { resourceMetadataUrl: RESOURCE_METADATA_URL });
   }
   return handler.fetch(c.req.raw, { authInfo: { token: "", clientId: agent.id, scopes: readScopes(agent), extra: { agent } } });
 }

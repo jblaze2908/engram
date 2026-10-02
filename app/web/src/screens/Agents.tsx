@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { SCOPES, type Agent, type Grant, type NewToken, type ProfileTarget, type Scope } from "../../../shared/types";
+import { SCOPES, type Agent, type Grant, type NewToken, type OAuthClient, type ProfileTarget, type Scope } from "../../../shared/types";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app";
 import { invalidateAgents } from "../lib/directory";
@@ -21,7 +21,7 @@ const SCOPE_HINT: Record<Scope, string> = {
 };
 
 /** Every scope present once, private always closed: the server enforces it, the UI just never offers it. */
-function normalise(grants: Grant[]): Grant[] {
+export function normalise(grants: Grant[]): Grant[] {
   return SCOPES.map((scope) => {
     if (scope === "private") return { scope, read: false, write: "none" };
     return grants.find((g) => g.scope === scope) ?? { scope, read: false, write: "none" };
@@ -39,6 +39,8 @@ function grantSummary(a: Agent): string {
 
 export function Agents({ id }: { id?: string }) {
   const load = useLoad(() => api.agents(), []);
+  const apps = useLoad(() => api.oauthClients(), []);
+  const appOf = (a: Agent) => apps.data?.find((c) => c.agent === a.id);
   const [reveal, setReveal] = useState<NewToken | null>(null);
   useEffect(() => { if (reveal && reveal.agent.id !== id) setReveal(null); }, [id]);
   const list = load.data ?? [];
@@ -49,13 +51,14 @@ export function Agents({ id }: { id?: string }) {
   const changed = (a?: Agent) => {
     invalidateAgents();
     if (a) load.setData(list.some((x) => x.id === a.id) ? list.map((x) => (x.id === a.id ? a : x)) : [...list, a]);
-    else load.reload();
+    else { load.reload(); apps.reload(); }
   };
 
   const groups: [string, Agent[]][] = [
     ["Pitcrew", list.filter((a) => a.kind === "pitcrew")],
     ["On the Mac", list.filter((a) => a.kind === "mac")],
-    ["Other", list.filter((a) => a.kind === "other")],
+    ["Connected apps", list.filter((a) => appOf(a))],
+    ["Other", list.filter((a) => a.kind === "other" && !appOf(a))],
   ];
 
   return (
@@ -91,7 +94,7 @@ export function Agents({ id }: { id?: string }) {
           ) : picked ? (
             <>
               {reveal && reveal.agent.id === picked.id && (reveal.agent.link ? <LinkReveal t={reveal} onDone={() => setReveal(null)} /> : <TokenReveal t={reveal} onDone={() => setReveal(null)} />)}
-              <AgentDetail a={picked} onChanged={changed} onToken={(t) => { changed(t.agent); setReveal(t); }} />
+              <AgentDetail a={picked} app={appOf(picked)} onChanged={changed} onToken={(t) => { changed(t.agent); setReveal(t); }} />
             </>
           ) : load.data ? (
             <Empty title={id ? "That agent isn’t here." : "No agents yet."}>
@@ -103,7 +106,9 @@ export function Agents({ id }: { id?: string }) {
   );
 }
 
-function GrantTable({ grants, onChange, disabled }: { grants: Grant[]; onChange: (g: Grant[]) => void; disabled?: boolean }) {
+const hostOf = (u?: string) => { try { return new URL(u ?? "").host; } catch { return "unknown"; } };
+
+export function GrantTable({ grants, onChange, disabled }: { grants: Grant[]; onChange: (g: Grant[]) => void; disabled?: boolean }) {
   const set = (scope: Scope, patch: Partial<Grant>) =>
     onChange(grants.map((g) => {
       if (g.scope !== scope) return g;
@@ -141,7 +146,7 @@ function GrantTable({ grants, onChange, disabled }: { grants: Grant[]; onChange:
   );
 }
 
-function AgentDetail({ a, onChanged, onToken }: { a: Agent; onChanged: (a?: Agent) => void; onToken: (t: NewToken) => void }) {
+function AgentDetail({ a, app, onChanged, onToken }: { a: Agent; app?: OAuthClient; onChanged: (a?: Agent) => void; onToken: (t: NewToken) => void }) {
   const { notify } = useApp();
   const [grants, setGrants] = useState(() => normalise(a.grants));
   const [busy, setBusy] = useState(false);
@@ -177,18 +182,20 @@ function AgentDetail({ a, onChanged, onToken }: { a: Agent; onChanged: (a?: Agen
   }
 
   async function revoke() {
-    if (!window.confirm(`Revoke ${a.name}? Its token stops working and it can’t read or propose anything. You can make it a new token later.`)) return;
+    const msg = app ? `Revoke ${a.name}? Every token it holds stops working; to use Engram again it has to connect and ask you again.`
+      : `Revoke ${a.name}? Its token stops working and it can’t read or propose anything. You can make it a new token later.`;
+    if (!window.confirm(msg)) return;
     setBusy(true); setError(null);
-    try { await api.revoke(a.id); notify(`${a.name} is revoked.`); onChanged(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+    try { await (app ? api.revokeOAuthClient(app.client_id) : api.revoke(a.id)); notify(`${a.name} is revoked.`); onChanged(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
   return (
     <>
       <BackLink href="#/agents" label="Agents" />
       <div className="flex items-center justify-between gap-3 flex-wrap text-[13px] text-ink-3">
-        <span>{AGENT_KIND_LABEL[a.kind]} · token made {shortDate(a.created_at)} · {a.revoked ? "revoked" : `last used ${ago(a.last_used_at)}`}</span>
+        <span>{app ? "Connected with OAuth" : AGENT_KIND_LABEL[a.kind]} · {app ? "connected" : "token made"} {shortDate(a.created_at)} · {a.revoked ? "revoked" : `last used ${ago(app?.last_used_at ?? a.last_used_at)}`}</span>
         <span className="flex gap-2">
-          <Btn disabled={busy} onClick={rotate}>New token</Btn>
+          {!app && <Btn disabled={busy} onClick={rotate}>New token</Btn>}
           {!a.revoked && <Btn kind="danger" disabled={busy} onClick={revoke}>Revoke</Btn>}
         </span>
       </div>
@@ -204,6 +211,7 @@ function AgentDetail({ a, onChanged, onToken }: { a: Agent; onChanged: (a?: Agen
           <Card>
             <CardHead left="Skills it gets" right={a.skills.length || undefined} />
             {skills.data?.length === 0 && <p className="rw text-ink-2">No skills in the vault yet.</p>}
+            {!!skills.data?.length && <p className="rw text-[12.5px] text-ink-3">Listed in its MCP instructions; it loads one with get when it needs it.</p>}
             {skills.data?.map((s) => (
               <label key={s.name} className="rw cursor-pointer hover:bg-surface-2">
                 <input type="checkbox" className="accent-[var(--ink)]" checked={a.skills.includes(s.name)} disabled={busy || a.revoked}
@@ -218,7 +226,9 @@ function AgentDetail({ a, onChanged, onToken }: { a: Agent; onChanged: (a?: Agen
           <Card>
             <CardHead left="Connection" />
             <div className="kv"><span>Endpoint</span><span className="font-mono text-[12px]">{a.link ? "Pitcrew link (/link)" : MCP_URL}</span></div>
-            <div className="kv"><span>Token</span><span className="font-mono text-[12px]">{a.token_prefix}…</span></div>
+            {app ? (
+              <div className="kv"><span>Signs in as</span><span>{app.name} · {hostOf(app.redirect_uris[0])}</span></div>
+            ) : <div className="kv"><span>Token</span><span className="font-mono text-[12px]">{a.token_prefix}…</span></div>}
             <div className="kv"><span>Profile it gets</span><a className="hover:text-ink-2" href={href(["context", "profile"], { target: a.profile })}>{TARGET_LABEL[a.profile]}</a></div>
           </Card>
           <ToolPicker a={a} onChanged={onChanged} />
