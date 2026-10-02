@@ -71,11 +71,14 @@ async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[])
   // Rule 1: episodes describe, they don't assert, so an authenticated agent's go straight in.
   if (input.kind === "episode") {
     if (!input.text) throw httpErr(400, "An episode needs text");
+    // An episode is read like any record, so it needs a scope the agent may write.
+    const scope = input.scope || "personal";
+    if (!canPropose(agent, scope)) refuse(who, "propose", "episode", scope, `No propose grant for ${scope}`);
     const id = uid("j"), [y, m, d] = ym(t), rel = `journal/${y}/${m}/${d}/${id}.md`;
-    writeDoc(rel, { fm: { id, at: t, who: agent.name, area, project: input.project ?? null, outputs: input.outputs || [] }, body: input.text });
+    writeDoc(rel, { fm: { id, at: t, who: agent.name, area, scope, project: input.project ?? null, outputs: input.outputs || [] }, body: input.text });
     await commit([rel], `journal: ${short(input.text)}`);
     indexPaths([rel]);
-    trace(who, "propose", id, "ok", "personal", "episode");
+    trace(who, "propose", id, "ok", scope, "episode");
     return { status: "accepted", id, reasons: [] };
   }
 

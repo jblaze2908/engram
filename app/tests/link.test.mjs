@@ -227,6 +227,9 @@ test("episodes and imports land in the member's home scope and area", async () =
   assert.deepEqual([e.status, e.json.status], [200, "accepted"]);
   assert.match(e.json.id, /^j/);
   assert.equal(gitLog()[0], "journal: Booked a blood test for Friday");
+  assert.match(vaultFile(`journal/2026/09/30/${e.json.id}.md`), /scope: health/);
+  const { one } = await import("../dist/src/db.js");
+  assert.equal(one("SELECT scope FROM docs WHERE id=?", e.json.id).scope, "health", "a Health member's session isn't Personal");
   const future = await L("POST", "/link/episodes", { pitcrew_id: "health", text: "Clock skew", at: Date.now() + 365 * 86400000 });
   assert.equal(future.status, 200);
   assert.equal((await L("POST", "/link/episodes", { pitcrew_id: "health", text: "" })).status, 400);

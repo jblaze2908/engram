@@ -71,7 +71,8 @@ export function episode(link: Agent, m: Member, b: { text: string; at?: number; 
   return withVault(async () => {
     const t = when(b.at), d = new Date(t), id = uid("j");
     const rel = `journal/${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${id}.md`;
-    writeDoc(rel, { fm: { id, at: t, who: m.agent.name, area: m.area, project: null, outputs: b.outputs || [] }, body: b.text.trim() });
+    // The member's scope, so a Health member's sessions are searchable only by agents granted Health.
+    writeDoc(rel, { fm: { id, at: t, who: m.agent.name, area: m.area, scope: m.scope, project: null, outputs: b.outputs || [] }, body: b.text.trim() });
     await commit([rel], `journal: ${short(b.text)}`);
     indexPaths([rel]);
     trace(actorOf(link), "link.episode", id, "ok", m.scope, m.agent.name);
