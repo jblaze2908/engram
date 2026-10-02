@@ -9,7 +9,7 @@ import { href, navigate } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { usePhone } from "../lib/useMedia";
 import { BackLink, Btn, Card, cx, Dot, Empty, ErrorNote, H1, ListPane, Loading, Logo, Main, Split } from "../components/ui";
-import { LinkToProfile, ToolChangeDetail } from "../components/InboxExtras";
+import { LinkToProfile, ToolCallDetail, ToolChangeDetail } from "../components/InboxExtras";
 
 const EMPTY_TITLE = "Nothing waiting. Agents’ proposals land here.";
 const EMPTY_BODY = "When an agent wants to add or change a memory, a person, a file or a skill, it waits here until you decide. Anything read from an email or a web page is held, with the reasons spelled out.";
@@ -63,7 +63,8 @@ function useDecide(list: Proposal[], reload: () => void) {
     setBusy(p.id); setError(null);
     try {
       await api.decide(p.id, d);
-      done(p, p.kind === "tool_change" ? (d === "accept" ? "Approved; agents can use it again." : "Kept blocked.") : DONE[d]);
+      done(p, p.kind === "tool_change" ? (d === "accept" ? "Approved; agents can use it again." : "Kept blocked.")
+        : p.kind === "tool_call" ? (d === "accept" ? "Approved; it ran." : "Rejected; nothing ran.") : DONE[d]);
     } catch (e) {
       // 409: already decided elsewhere (e.g. in Pitcrew); refresh so it drops out of the list.
       if (e instanceof ApiError && e.status === 409) { notify("Already decided elsewhere."); reload(); refreshInbox(); }
@@ -151,7 +152,13 @@ function Actions({ p, dec, phone }: { p: Proposal; dec: Dec; phone?: boolean }) 
 
 function ProposalDetail({ p, dec }: { p: Proposal; dec: Dec }) {
   if (p.kind === "tool_change") return <><BackLink href={href(["inbox"])} label="Inbox" /><ToolChangeDetail p={p} busy={dec.busy === p.id} error={dec.error} decide={(d) => dec.decide(p, d)} /></>;
+  if (p.kind === "tool_call") return <ToolCall p={p} dec={dec} />;
   return <RecordProposal p={p} dec={dec} />;
+}
+
+function ToolCall({ p, dec }: { p: Proposal; dec: Dec }) {
+  const who = useWho();
+  return <><BackLink href={href(["inbox"])} label="Inbox" /><ToolCallDetail p={p} by={who(p.agent).name} busy={dec.busy === p.id} error={dec.error} decide={(d) => dec.decide(p, d)} /></>;
 }
 
 function RecordProposal({ p, dec }: { p: Proposal; dec: Dec }) {

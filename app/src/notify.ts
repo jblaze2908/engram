@@ -58,6 +58,8 @@ export function sweepProposals(t = now()) {
   for (const r of rows) {
     // A tool_change title is the tool's name, never record text.
     if (r.kind === "tool_change") sent.push(send({ text: `A tool changed its description and is blocked: ${r.title.slice(0, 80)}`, click: `/#/inbox/${encodeURIComponent(r.id)}`, tags: "lock", priority: 4 }));
+    // A tool_call title is "<agent> wants to run <conn>/<tool>"; arguments never reach it. An agent is waiting, so no batching.
+    else if (r.kind === "tool_call") sent.push(send({ text: `Approve? ${r.title.slice(0, 120)}`, click: `/#/inbox/${encodeURIComponent(r.id)}`, tags: "hand", priority: 4 }));
     else pending.push(r);
   }
   if (pending.length) {

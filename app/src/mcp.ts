@@ -18,6 +18,7 @@ import { registerUpstream, toolHits } from "./gateway/mcp.js";
 import { instructions } from "./instructions.js";
 import { verifyAccess } from "./oauth/store.js";
 import { RESOURCE_METADATA_URL } from "./routes/oauth.js";
+import { callRecord, taintFrom } from "./gateway/gate.js";
 
 // structuredContent lets client-side Code Mode (Pi, programmatic tool calling) get typed values; content keeps plain clients working.
 const text = (v: Record<string, unknown>) => ({ content: [{ type: "text" as const, text: JSON.stringify(v) }], structuredContent: v });
@@ -70,8 +71,16 @@ function getRecord(agent: Agent, who: Actor, scopes: Scope[], id: string) {
   else if (doc.kind === "skill") rec = S.skills([doc.title])[0];
   else rec = S.docData(doc);
   recordReads(agent, read);
+  taintFrom(agent.id, [rec]);
   trace(who, "get", id, "ok", doc.scope);
   return text({ kind: doc.kind, record: rec });
+}
+
+// A gated upstream call's status and, once run, its result (kept 1 h). Only the agent that made it can read it.
+function getCall(agent: Agent, who: Actor, id: string) {
+  const rec = callRecord(agent, id.slice(5));
+  trace(who, "get", id, rec ? "ok" : "error", null, rec ? String(rec.status) : "not found");
+  return rec ? text({ kind: "call", record: rec }) : fail("No such call, or its result has expired");
 }
 
 function server(agent: Agent) {
@@ -80,11 +89,12 @@ function server(agent: Agent) {
   s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, profile, skills (kind \"skill\"; load one with get) and the upstream tools you may call (kind \"tool\").", inputSchema: Search, outputSchema: SearchOut }, (a) => {
     const { hits, withheld } = a.kind === "tool" ? { hits: [], withheld: 0 } : search({ ...a, kind: a.kind as Exclude<typeof a.kind, "tool">, scopes });
     recordReads(agent, hits.filter((h) => h.kind === "memory").map((h) => h.id));
+    taintFrom(agent.id, hits);
     if (!a.kind || a.kind === "tool") (hits as unknown[]).push(...toolHits(agent, a.query, a.limit ?? 10));
     trace(who, "search", a.query.slice(0, 80), "ok", null, `${hits.length} hits${withheld ? `, ${withheld} withheld` : ""}`);
     return text({ hits });
   });
-  s.registerTool("get", { description: "Get one record by id, as returned by search.", inputSchema: Get, outputSchema: GetOut }, (a) => getRecord(agent, who, scopes, a.id));
+  s.registerTool("get", { description: "Get one record by id, as returned by search.", inputSchema: Get, outputSchema: GetOut }, (a) => a.id.startsWith("call:") ? getCall(agent, who, a.id) : getRecord(agent, who, scopes, a.id));
   s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source.", inputSchema: Propose, outputSchema: ProposeOut }, async (a) => {
     try { return text(await propose(agent, a) as unknown as Record<string, unknown>); } catch (e) { return fail(errMsg(e)); }
   });

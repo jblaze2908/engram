@@ -43,6 +43,46 @@ export function ToolChangeDetail({ p, busy, error, decide }: { p: Proposal; busy
   );
 }
 
+type ToolCall = { call: string; connection: string; connection_name: string; tool: string; kind: "read" | "write"; args: unknown };
+
+/** A tool_call proposal: an agent is waiting. The proposal holds argument shapes; the values are fetched only on request. */
+export function ToolCallDetail({ p, by, busy, error, decide }: { p: Proposal; by: string; busy: boolean; error: string | null; decide: (d: Decision) => void }) {
+  const d = p.data as ToolCall;
+  const [args, setArgs] = useState<string | null>(null);
+  const [argError, setArgError] = useState<string | null>(null);
+  async function show() {
+    setArgError(null);
+    try { const r = await api.callArgs(p.id); setArgs(r.args ? JSON.stringify(r.args, null, 2) : "(no longer stored)"); } catch (e) { setArgError(e instanceof Error ? e.message : String(e)); }
+  }
+  return (
+    <>
+      <div className="flex items-center justify-between gap-4 text-[13px] text-ink-3 flex-wrap">
+        <span>Tool call · {d.connection_name} · {d.kind}</span>
+        <span className="flex items-center gap-2"><Dot color="var(--signal)" />{by} is waiting</span>
+      </div>
+      <h1 className="text-[26px] wide:text-[34px] font-semibold tracking-[-0.025em] leading-tight mt-4">
+        {by} wants to run <span className="font-mono text-[0.8em]">{d.connection}/{d.tool}</span>
+      </h1>
+      <p className="text-[15px] text-ink-2 mt-2 leading-relaxed max-w-[680px]">Asked on {shortDate(p.created_at)} at {clock(p.created_at)}. Approve runs it once, now, with Engram’s sign-in; the agent collects the result for an hour.</p>
+      <Card className="mt-7">
+        {p.reasons.map((r, i) => <p key={i} className={cx("px-5 py-3 text-[14px]", i > 0 && "border-t border-line")}>{r}</p>)}
+        <div className="border-t border-line px-5 py-4">
+          <p className="text-[12.5px] text-ink-3">Arguments</p>
+          <pre className="mt-2 text-[12.5px] font-mono whitespace-pre-wrap break-words text-ink-2">{args ?? JSON.stringify(d.args, null, 2)}</pre>
+          {!args && <Btn kind="quiet" className="mt-2" onClick={show}>Show the values</Btn>}
+          {argError && <p role="alert" className="text-[13px] text-bad mt-2">{argError}</p>}
+        </div>
+      </Card>
+      {error && <p role="alert" className="text-[13px] text-bad mt-5">{error}</p>}
+      <div className="mt-7 flex items-center gap-2 flex-wrap">
+        <Btn lg kind="primary" disabled={busy} onClick={() => decide("accept")}>Approve and run</Btn>
+        <Btn lg disabled={busy} onClick={() => decide("reject")}>Reject</Btn>
+        <a className="ml-auto text-[12.5px] text-ink-3 hover:text-ink-2" href={`#/connections/${encodeURIComponent(d.connection)}`}>Open {d.connection_name}</a>
+      </div>
+    </>
+  );
+}
+
 /** For a skill edit that really belongs in the profile: reject it and leave a `see: profile/<file>` line in the skill. */
 export function LinkToProfile({ p, onDone }: { p: Proposal; onDone: (msg: string) => void }) {
   const files = useLoad(() => api.profile().then((r) => r.files), []);
