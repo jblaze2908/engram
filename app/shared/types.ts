@@ -1,8 +1,9 @@
 // The API's data shapes, shared by the server (app/src) and the web app (app/web). JSON over the wire, so times are
 // epoch milliseconds. Extend here, not in either side, so a renamed field breaks the build.
 
-export type Scope = "personal" | "finance" | "health" | "private";
-export const SCOPES: Scope[] = ["personal", "finance", "health", "private"];
+/** household: addresses, account last-4s, family. Read only by agents granted it by name; never a default grant. */
+export type Scope = "personal" | "finance" | "health" | "household" | "private";
+export const SCOPES: Scope[] = ["personal", "finance", "health", "household", "private"];
 
 /** Where a record came from. Email bodies and web pages are untrusted: anything derived from them is held for review. */
 export type SourceKind = "you" | "agent" | "email" | "web" | "file" | "calendar" | "other";
@@ -160,7 +161,9 @@ export interface Digest {
   journal: { day: string; lines: string[] }[];
 }
 /** scope: the member's home scope (default personal). connections: read tools granted once, when the agent is created. */
-export interface LinkMember { pitcrew_id: string; name: string; hue?: string | null; area?: string | null; scope?: "personal" | "finance" | "health"; connections?: string[] }
+export interface LinkMember { pitcrew_id: string; name: string; hue?: string | null; area?: string | null; scope?: "personal" | "finance" | "health"; connections?: string[];
+  /** Read household facts; applied when the member is created (POST /link/members/:id/household changes it later). */
+  household?: boolean }
 /** One of a member's own memories as Pitcrew shows it (source is the label). */
 export interface LinkMemory { id: string; text: string; scope: Scope; area: string; created_at: number; source: string }
 export interface LinkConnection { id: string; name: string; status: "ok" | "warn" | "signal"; detail: string; read: number; write: number }
@@ -170,7 +173,7 @@ export interface LinkConnection { id: string; name: string; status: "ok" | "warn
 /** What Pitcrew puts in a member's instructions: its compiled profile and the names of skills it may load with get(). Nothing is written to disk. */
 export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; connections: { id: string; name: string }[];
   /** The member's own active memories, newest first (≤60), and its home scope. */
-  memories: { id: string; text: string }[]; scope: Scope; at: number }
+  memories: { id: string; text: string }[]; scope: Scope; household: boolean; at: number }
 
 // ---------- batch 2: catalog, approval gate, OAuth server ----------
 

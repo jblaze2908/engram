@@ -154,7 +154,7 @@ test("members: home scope sets area and grants; connections grant read tools onc
   const h = await L("POST", "/link/members", { pitcrew_id: "health", name: "Health", scope: "health", connections: ["gh", "nope"] });
   assert.equal(h.status, 200);
   const grants = Object.fromEntries(h.json.agent.grants.map((x) => [x.scope, [x.read, x.write]]));
-  assert.deepEqual(grants, { personal: [true, "propose"], finance: [false, "none"], health: [true, "propose"] });
+  assert.deepEqual(grants, { personal: [true, "propose"], finance: [false, "none"], health: [true, "propose"], household: [false, "none"] });
   assert.deepEqual(h.json.agent.tools, ["gh/list_issues"], "read tools only, never blocked or write tools");
   const s = await L("GET", "/link/sync?pitcrew_id=health");
   assert.equal(s.json.scope, "health");
@@ -298,4 +298,23 @@ test("link artifacts: search, member, status, kind and imported filters; pages b
   assert.deepEqual(seen, all.artifacts.map((a) => a.id), "walking the pages gives the whole list, newest first");
 
   for (const bad of ["?status=maybe", "?kind=exe", "?limit=500", "?cursor=x", "?member=../x"]) assert.equal((await L("GET", `/link/artifacts${bad}`)).status, 400, bad);
+});
+
+test("household: only members granted it read household facts; the toggle keeps the token", async () => {
+  const fact = await req("POST", "/api/memories", { text: "Flat 4B, Indiranagar is home", area: "home", scope: "household" }, { cookie });
+  assert.equal(fact.status, 200, fact.text);
+  const plain = await L("POST", "/link/members", { pitcrew_id: "errands", name: "Errands" });
+  const hh = await L("POST", "/link/members", { pitcrew_id: "courier", name: "Courier", household: true });
+  const finds = async (token) => (await call(token, "search", { query: "Indiranagar home" })).data.hits.some((h) => h.id === fact.json.id);
+  assert.equal(await finds(plain.json.token), false, "no household grant by default");
+  assert.equal(await finds(hh.json.token), true);
+  assert.equal((await L("GET", "/link/sync?pitcrew_id=courier")).json.household, true);
+  assert.equal((await call(hh.json.token, "propose", { kind: "memory", text: "The gate code changed", scope: "household" })).isError, true, "read only");
+
+  const off = await L("POST", "/link/members/courier/household", { household: false });
+  assert.deepEqual(off.json, { household: false });
+  assert.equal(await finds(hh.json.token), false, "same token, grant gone");
+  assert.deepEqual((await L("POST", "/link/members/errands/household", { household: true })).json, { household: true });
+  assert.equal(await finds(plain.json.token), true, "the toggle never rotates the token");
+  assert.equal((await L("POST", "/link/members/nobody/household", { household: true })).status, 404);
 });

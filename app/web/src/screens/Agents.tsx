@@ -17,6 +17,7 @@ const SCOPE_HINT: Record<Scope, string> = {
   personal: "Home, travel, preferences, people",
   finance: "Accounts, bills, payments",
   health: "Appointments, insurance, records",
+  household: "Addresses, account last-4s, family",
   private: "Only you, ever",
 };
 

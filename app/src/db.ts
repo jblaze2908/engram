@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, profile TEXT NOT NULL, hue TEXT, skills TEXT NOT NULL DEFAULT '[]',
   token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL, created_at INTEGER NOT NULL, last_used_at INTEGER, revoked INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS grants (
-  agent_id TEXT NOT NULL, scope TEXT NOT NULL CHECK (scope IN ('personal','finance','health')), read INTEGER NOT NULL,
+  agent_id TEXT NOT NULL, scope TEXT NOT NULL CHECK (scope IN ('personal','finance','health','household')), read INTEGER NOT NULL,
   write TEXT NOT NULL CHECK (write IN ('none','propose')), PRIMARY KEY (agent_id, scope));
 CREATE TABLE IF NOT EXISTS proposals (
   id TEXT PRIMARY KEY, kind TEXT NOT NULL, agent TEXT, title TEXT NOT NULL, scope TEXT NOT NULL, area TEXT NOT NULL,
@@ -45,6 +45,17 @@ CREATE TABLE IF NOT EXISTS fts_ids (id TEXT PRIMARY KEY, rid INTEGER NOT NULL);
 -- Embeddings of searchable docs (Float32 blobs). Kept across boots: hash covers model + text, so only changed docs re-embed.
 CREATE TABLE IF NOT EXISTS vecs (id TEXT PRIMARY KEY, hash TEXT NOT NULL, v BLOB NOT NULL);
 `);
+
+// SQLite can't alter a CHECK, so a grants table from before the household scope is copied into a new one, once.
+if (!(db.prepare("SELECT sql FROM sqlite_master WHERE name='grants'").get() as { sql: string }).sql.includes("household")) db.exec(`
+BEGIN;
+CREATE TABLE grants_new (
+  agent_id TEXT NOT NULL, scope TEXT NOT NULL CHECK (scope IN ('personal','finance','health','household')), read INTEGER NOT NULL,
+  write TEXT NOT NULL CHECK (write IN ('none','propose')), PRIMARY KEY (agent_id, scope));
+INSERT INTO grants_new SELECT agent_id, scope, read, write FROM grants;
+DROP TABLE grants;
+ALTER TABLE grants_new RENAME TO grants;
+COMMIT;`);
 
 export type Row = Record<string, any>;
 type Param = SQLInputValue | undefined;

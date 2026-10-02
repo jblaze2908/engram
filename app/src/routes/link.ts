@@ -11,7 +11,7 @@ import { authenticate } from "../agents.js";
 import { decide, toProposal } from "../proposals.js";
 import { digest } from "../digest.js";
 import { trace } from "../trace.js";
-import { memberOf, upsertMember } from "../link/members.js";
+import { memberOf, setHousehold, upsertMember } from "../link/members.js";
 import { importArtifact, importMemories, linkArtifacts, linkPublish } from "../link/imports.js";
 import { syncBundle } from "../link/sync.js";
 import { episode, forgetOwn, linkConnections, ownMemories, remember } from "../link/memories.js";
@@ -70,8 +70,15 @@ export const link = new Hono<Env>()
       pitcrew_id: PID, name: z.string().trim().min(1).max(60),
       hue: z.string().regex(/^[#a-zA-Z0-9(),.% -]{1,40}$/).nullable().optional(), area: z.string().regex(/^[a-z0-9][a-z0-9-]{0,59}$/).nullable().optional(),
       scope: z.enum(["personal", "finance", "health"]).optional(), connections: z.array(z.string().regex(CONN_ID)).max(20).optional(),
+      household: z.boolean().optional(),
     }));
     return c.json(upsertMember(c.get("agent"), b));
+  })
+  .post("/link/members/:pitcrew_id/household", async (c) => {
+    const pid = PID.safeParse(c.req.param("pitcrew_id"));
+    if (!pid.success) throw httpErr(400, "Invalid pitcrew_id");
+    const b = await body(c, z.object({ household: z.boolean() }));
+    return c.json(setHousehold(c.get("agent"), pid.data, b.household));
   })
   .post("/link/import/memories", async (c) => {
     const b = await body(c, z.object({ pitcrew_id: PID, items: z.array(z.object({ text: z.string().trim().min(1).max(4000), created_at: at })).min(1).max(500) }), 4 << 20);

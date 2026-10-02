@@ -37,6 +37,18 @@ export function memberOf(pitcrewId: string): Member {
 
 const SCOPE_AREA: Partial<Record<Scope, string>> = { finance: "money", health: "health" };
 const propose = (scope: Scope): Grant => ({ scope, read: true, write: "propose" });
+// Read only: household facts are yours to add, so a member can see them but never proposes into them.
+const HOUSEHOLD: Grant = { scope: "household", read: true, write: "none" };
+export const hasHousehold = (a: Agent) => a.grants.some((g) => g.scope === "household" && g.read);
+
+/** The driver's checkbox in Pitcrew: adds or removes the household read grant, and leaves the token alone. */
+export function setHousehold(link: Agent, pitcrewId: string, on: boolean) {
+  const { agent } = memberOf(pitcrewId);
+  if (on) run("INSERT INTO grants(agent_id,scope,read,write) VALUES(?,?,1,'none') ON CONFLICT(agent_id,scope) DO UPDATE SET read=1", agent.id, "household");
+  else run("DELETE FROM grants WHERE agent_id=? AND scope='household'", agent.id);
+  trace(actorOf(link), "link.member.household", agent.id, "ok", "household", `${agent.name}: ${on ? "on" : "off"}`);
+  return { household: hasHousehold(getAgent(agent.id)!) };
+}
 // Read tools of the named connections that aren't blocked; never a write tool (those you grant in Engram).
 function readTools(conns: string[]) {
   return [...new Set(conns)].filter((c) => connRow(c)).flatMap((c) => toolRows(c).filter((t) => kindOf(t) === "read" && policyOf(t) !== "block").map((t) => [c, t.name] as const));
@@ -58,7 +70,8 @@ export function upsertMember(link: Agent, m: LinkMember): NewToken {
     // Only a scope change from Pitcrew (the driver's own edit) touches grants, and it only adds.
     if (scope !== "personal" && r!.scope !== scope) run("INSERT INTO grants(agent_id,scope,read,write) VALUES(?,?,1,'propose') ON CONFLICT(agent_id,scope) DO UPDATE SET read=1, write='propose'", existing.id, scope);
   } else {
-    t = createAgent({ name: m.name, kind: "pitcrew", profile, grants: scope === "personal" ? [propose("personal")] : [propose("personal"), propose(scope)] });
+    const grants = scope === "personal" ? [propose("personal")] : [propose("personal"), propose(scope)];
+    t = createAgent({ name: m.name, kind: "pitcrew", profile, grants: m.household ? [...grants, HOUSEHOLD] : grants });
     // Connections picked at hire apply once, on creation; after that the tool grants are yours to edit in Engram.
     for (const [c, tool] of readTools(m.connections || [])) run("INSERT OR IGNORE INTO agent_tools(agent_id,conn_id,tool) VALUES(?,?,?)", t.agent.id, c, tool);
   }

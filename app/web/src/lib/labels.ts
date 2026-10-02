@@ -1,6 +1,6 @@
 import type { Agent, ArtifactKind, EntityKind, ProfileTarget, Scope, Source, SourceKind } from "../../../shared/types";
 
-export const SCOPE_LABEL: Record<Scope, string> = { personal: "Personal", finance: "Finance", health: "Health", private: "Private" };
+export const SCOPE_LABEL: Record<Scope, string> = { personal: "Personal", finance: "Finance", health: "Health", household: "Household", private: "Private" };
 export const TARGET_LABEL: Record<ProfileTarget, string> = {
   "crew-chief": "Crew Chief", "pitcrew-member": "Pitcrew members", "claude-code": "Claude Code", codex: "Codex",
 };

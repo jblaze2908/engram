@@ -7,7 +7,7 @@ import { sha } from "./auth.js";
 import { trace, YOU } from "./trace.js";
 import { toolGrants } from "./gateway/store.js";
 
-export const GRANTABLE: Scope[] = ["personal", "finance", "health"];
+export const GRANTABLE: Scope[] = ["personal", "finance", "health", "household"];
 const newToken = () => `eg_${randomBytes(32).toString("base64url")}`;
 const prefixOf = (t: string) => t.slice(0, 7);
 

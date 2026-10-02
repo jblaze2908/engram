@@ -7,7 +7,7 @@ import { compile } from "../views.js";
 import { grantedSkills } from "../instructions.js";
 import { trace } from "../trace.js";
 import { all } from "../db.js";
-import type { Member } from "./members.js";
+import { hasHousehold, type Member } from "./members.js";
 import { ownBrief } from "./memories.js";
 
 export function syncBundle(m: Member): SyncBundle {
@@ -15,5 +15,5 @@ export function syncBundle(m: Member): SyncBundle {
   const scopes = readScopes(a), skills = grantedSkills(a, scopes), profile = compile(a.profile, scopes);
   trace({ id: a.id, name: a.name }, "sync", a.profile, "ok", null, `${skills.length} skills, ${profile.lines} profile lines`);
   const connections = all<{ id: string; name: string }>("SELECT DISTINCT c.id, c.name FROM agent_tools g JOIN connections c ON c.id=g.conn_id WHERE g.agent_id=? ORDER BY c.name", a.id);
-  return { agent: a.name, profile, skills, connections, memories: ownBrief(m), scope: m.scope, at: now() };
+  return { agent: a.name, profile, skills, connections, memories: ownBrief(m), scope: m.scope, household: hasHousehold(a), at: now() };
 }
