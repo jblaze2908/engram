@@ -19,6 +19,7 @@ import { startVaultSync } from "./vaultsync.js";
 import { gateway } from "./routes/gateway.js";
 import { leftovers } from "./routes/leftovers.js";
 import { startGateway } from "./gateway/upstream.js";
+import { PRIVACY_HTML } from "./privacy.js";
 
 const WEB = new URL("../web/", import.meta.url).pathname;
 const CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
@@ -49,6 +50,7 @@ app.onError((e: HttpError, c) => {
   return c.json({ error: status === 500 ? "Something went wrong" : e.message }, status as ContentfulStatusCode);
 });
 app.get("/healthz", (c) => c.json({ ok: true }));
+app.get("/privacy", (c) => c.html(PRIVACY_HTML, 200, { "Cache-Control": "public, max-age=3600" }));
 app.all("/mcp", mcpRoute);
 app.route("/", link);
 app.route("/", oauth);

@@ -47,3 +47,10 @@ test("cross-origin mutation is refused even with the header", async () => {
   const r = await req("POST", "/api/login", { password: "x" }, { headers: { origin: "https://evil.example" } });
   assert.equal(r.status, 403);
 });
+
+test("the privacy policy is public: Google's consent screen links to it", async () => {
+  const r = await req("GET", "/privacy");
+  assert.equal(r.status, 200);
+  assert.match(r.text, /Limited Use requirements/);
+  assert.match(r.text, /never sends mail/);
+});
