@@ -3,9 +3,10 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { Agent, ArtifactKind, Memory, Source } from "../../shared/types.js";
+import type { Agent, ArtifactKind, LinkArtifact, Memory, Source } from "../../shared/types.js";
 import { now, uid, norm, httpErr, VAULT } from "../config.js";
-import { one } from "../db.js";
+import { one, all } from "../db.js";
+import { artifacts } from "../store.js";
 import { writeDoc, writeRaw, commit, withVault } from "../vault.js";
 import { indexPaths } from "../index.js";
 import { memoryFm, memoryPath } from "../proposals.js";
@@ -64,4 +65,20 @@ export function linkPublish(link: Agent, m: Member, b: { title: string; filename
   const source: Source = { kind: "agent", label: `pitcrew:${m.agent.name}`, agent: m.agent.id, ref: b.ref ?? null, at: now() };
   trace(actorOf(link), "link.publish", b.id || "artifact", "ok", m.scope, `${m.agent.name}: ${b.filename.slice(0, 60)}`);
   return publish({ agent: m.agent, actor: actorOf(m.agent), source }, { ...b, scope: m.scope, area: m.area });
+}
+
+// What Pitcrew members published, newest first; private scope never leaves Engram. One query per Library view.
+export function linkArtifacts(): LinkArtifact[] {
+  const members = new Map(all<{ agent_id: string; pitcrew_id: string }>("SELECT agent_id, pitcrew_id FROM link_members").map((r) => [r.agent_id, r.pitcrew_id]));
+  if (!members.size) return [];
+  const ids = [...members.keys()];
+  const rows = all(`SELECT id, path, data FROM docs WHERE kind='artifact' AND status='active' AND scope!='private'
+    AND json_extract(data,'$.source.agent') IN (${ids.map(() => "?").join(",")}) ORDER BY at DESC LIMIT 300`, ...ids);
+  const pending = new Set(all<{ ref: string }>("SELECT source_ref ref FROM proposals WHERE kind='share' AND status='open'").map((r) => r.ref));
+  return artifacts(rows).map((a) => {
+    const v = a.versions?.at(-1);
+    return { id: a.id, title: a.title, kind: String(a.kind), pitcrew_id: members.get(a.source.agent || "")!, version: a.version || a.versions?.length || 1,
+      mime: v?.mime ?? a.mime ?? null, size: v?.size ?? a.size ?? null, url: a.url, public_url: a.public_url, share_pending: !a.public_url && pending.has(a.id),
+      ref: a.source.ref ?? null, created_at: a.created_at, updated_at: v?.at ?? a.updated_at ?? a.created_at };
+  });
 }

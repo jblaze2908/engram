@@ -138,6 +138,11 @@ export interface Artifact { path?: string }
 
 // ---------- M3 Pitcrew link, M4 digest ----------
 
+/** An artifact a Pitcrew member published, as Pitcrew lists it. ref: the thread it came from ("pitcrew:thread:<id>"). */
+export interface LinkArtifact {
+  id: string; title: string; kind: string; pitcrew_id: string; version: number; mime: string | null; size: number | null;
+  url: string; public_url: string | null; share_pending: boolean; ref: string | null; created_at: number; updated_at: number;
+}
 /** What Pitcrew needs to mirror Engram: open proposals (never private scope) and the current digest. */
 export interface LinkInbox { proposals: Proposal[]; at: number }
 export interface Digest {

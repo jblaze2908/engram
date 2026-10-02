@@ -12,7 +12,7 @@ import { decide, toProposal } from "../proposals.js";
 import { digest } from "../digest.js";
 import { trace } from "../trace.js";
 import { memberOf, upsertMember } from "../link/members.js";
-import { importArtifact, importMemories, linkPublish } from "../link/imports.js";
+import { importArtifact, importMemories, linkArtifacts, linkPublish } from "../link/imports.js";
 import { syncBundle } from "../link/sync.js";
 import { episode, forgetOwn, linkConnections, ownMemories, remember } from "../link/memories.js";
 import { CONN_ID } from "../gateway/store.js";
@@ -92,6 +92,7 @@ export const link = new Hono<Env>()
     }), 14 << 20);
     return c.json(await linkPublish(c.get("agent"), memberOf(b.pitcrew_id), b));
   })
+  .get("/link/artifacts", (c) => c.json({ artifacts: linkArtifacts() }))
   .get("/link/sync", (c) => {
     const pid = PID.safeParse(c.req.query("pitcrew_id"));
     if (!pid.success) throw httpErr(400, "Invalid pitcrew_id");

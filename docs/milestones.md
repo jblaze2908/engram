@@ -45,6 +45,8 @@ and its token is pasted into Pitcrew's Settings. Link API (bearer, link tokens o
   `{kind:"agent", label:"pitcrew:<name>"}`, trusted, area from the member's `area` (default `home`). Dedupe applies.
 - `POST /link/import/artifacts {pitcrew_id, title, kind, mime, content_base64, created_at}` → accepted, kept copy.
 - `GET  /link/sync?pitcrew_id=` → `SyncBundle` for that member.
+- `GET  /link/artifacts` → `{artifacts: LinkArtifact[]}`: what Pitcrew members published (active, never private scope),
+  newest first, ≤ 300, with `url`, `public_url`, `share_pending` and the thread `ref`. Pitcrew's Library reads it per view.
 - Link v2 (2026-10-02): `POST /link/members` also takes `scope` (personal | finance | health: the member's home scope,
   where its memories, artifacts and journal land; area follows it) and `connections` (read tools of those connections,
   granted once, on creation). A scope change adds that scope's read + propose grant and never removes one.

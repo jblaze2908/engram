@@ -244,3 +244,21 @@ test("episodes and imports land in the member's home scope and area", async () =
   const art = await L("POST", "/link/import/artifacts", { pitcrew_id: "health", title: "Lab report", kind: "report", mime: "application/pdf", content_base64: Buffer.from("%PDF lab").toString("base64") });
   assert.equal((await req("GET", `/api/artifacts/${art.json.id}`, undefined, { cookie })).json.scope, "health");
 });
+
+test("link artifacts: what members published, with link state; other agents' files and forgotten ones stay out", async () => {
+  const content_base64 = Buffer.from("# Goa\n").toString("base64");
+  const p = await L("POST", "/link/artifacts", { pitcrew_id: "bills", title: "Goa plan", filename: "goa.md", content_base64, public: true, ref: "pitcrew:thread:th_goa" });
+  assert.deepEqual([p.status, p.json.status], [200, "share_pending"]);
+  const theirs = await call(other.token, "publish", { title: "Not from Pitcrew", filename: "x.md", text: "x" });
+  const list = async () => (await L("GET", "/link/artifacts")).json.artifacts;
+  const goa = (await list()).find((a) => a.id === p.json.id);
+  assert.deepEqual([goa.title, goa.pitcrew_id, goa.version, goa.share_pending, goa.public_url, goa.ref, goa.url], ["Goa plan", "bills", 1, true, null, "pitcrew:thread:th_goa", p.json.url]);
+  assert.ok(!(await list()).some((a) => a.id === theirs.data.id), "only Pitcrew members' artifacts");
+  const share = (await req("GET", "/api/inbox", undefined, { cookie })).json.find((x) => x.kind === "share" && x.data.artifact_id === p.json.id);
+  await req("POST", `/api/inbox/${share.id}`, { decision: "accept" }, { cookie });
+  const shared = (await list()).find((a) => a.id === p.json.id);
+  assert.deepEqual([shared.share_pending, /\/s\/[\w-]{22}$/.test(shared.public_url)], [false, true]);
+  await req("POST", `/api/artifacts/${p.json.id}/forget`, {}, { cookie });
+  assert.ok(!(await list()).some((a) => a.id === p.json.id), "forgotten artifacts drop out");
+  assert.equal((await req("GET", "/link/artifacts", undefined, { bearer: other.token, csrf: false })).status, 403, "the link token only");
+});
