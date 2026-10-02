@@ -5,7 +5,7 @@ import { join, relative, basename } from "node:path";
 import type { Scope, MemoryStatus, SourceKind, Source } from "../shared/types.js";
 import { SCOPES, UNTRUSTED } from "../shared/types.js";
 import { VAULT, now, norm } from "./config.js";
-import { all, run, tx, setSetting } from "./db.js";
+import { all, one, run, tx, setSetting } from "./db.js";
 import { parseDoc } from "./vault.js";
 import { pruneTrace } from "./trace.js";
 import { SEARCHABLE, putVec, dropVec } from "./search.js";
@@ -86,17 +86,28 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+// Rows written before fts_ids existed have no map entry; clear them once so the boot scan refills with mapped rows.
+if (!one("SELECT 1 FROM fts_ids LIMIT 1") && one("SELECT 1 FROM docs_fts LIMIT 1")) run("DELETE FROM docs_fts");
+function ftsDel(id: string) {
+  const m = one<{ rid: number }>("SELECT rid FROM fts_ids WHERE id=?", id);
+  if (m) { run("DELETE FROM docs_fts WHERE rowid=?", m.rid); run("DELETE FROM fts_ids WHERE id=?", id); }
+}
+function ftsPut(id: string, title: string, body: string) {
+  const rid = Number(run("INSERT INTO docs_fts(id,title,body) VALUES(?,?,?)", id, title, body).lastInsertRowid);
+  run("INSERT INTO fts_ids(id,rid) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET rid=excluded.rid", id, rid);
+}
+
 function put(rel: string, mtime: number) {
   const r = toRecord(rel, readFileSync(join(VAULT, rel), "utf8"), mtime);
-  for (const old of all<{ id: string }>("SELECT id FROM docs WHERE path=? OR id=?", rel, r?.id ?? "")) { run("DELETE FROM docs_fts WHERE id=?", old.id); if (old.id !== r?.id) dropVec(old.id); }
+  for (const old of all<{ id: string }>("SELECT id FROM docs WHERE path=? OR id=?", rel, r?.id ?? "")) { ftsDel(old.id); if (old.id !== r?.id) dropVec(old.id); }
   run("DELETE FROM docs WHERE path=? OR id=?", rel, r?.id ?? "");
   if (!r) return;
   run(`INSERT INTO docs(id,kind,path,title,body,area,project,scope,status,norm,source_ref,at,valid_until,data,mtime) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     r.id, r.kind, rel, r.title, r.body, r.area, r.project, r.scope, r.status, r.norm, r.source_ref, r.at, r.valid_until, JSON.stringify(r.data), mtime);
-  run("INSERT INTO docs_fts(id,title,body) VALUES(?,?,?)", r.id, r.title, r.body);
+  ftsPut(r.id, r.title, r.body);
   if ((SEARCHABLE as readonly string[]).includes(r.kind)) putVec(r.id, r.title, r.body);
 }
-const drop = (rel: string) => { for (const d of all<{ id: string }>("SELECT id FROM docs WHERE path=?", rel)) { run("DELETE FROM docs_fts WHERE id=?", d.id); dropVec(d.id); } run("DELETE FROM docs WHERE path=?", rel); };
+const drop = (rel: string) => { for (const d of all<{ id: string }>("SELECT id FROM docs WHERE path=?", rel)) { ftsDel(d.id); dropVec(d.id); } run("DELETE FROM docs WHERE path=?", rel); };
 
 // After our own write: index those files now so the next read sees them.
 export function indexPaths(rels: string[]) {
