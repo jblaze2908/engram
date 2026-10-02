@@ -147,7 +147,7 @@ export interface LinkMember { pitcrew_id: string; name: string; hue?: string | n
 // ---------- M5 sync ----------
 
 /** What Pitcrew puts in a member's instructions: its compiled profile and the names of skills it may load with get(). Nothing is written to disk. */
-export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; at: number }
+export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; connections: { id: string; name: string }[]; at: number }
 
 // ---------- batch 2: catalog, approval gate, OAuth server ----------
 

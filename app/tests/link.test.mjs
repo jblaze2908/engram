@@ -135,6 +135,7 @@ test("link digest and member sync bundle", async () => {
   assert.equal(s.status, 200);
   assert.equal(s.json.agent, "Bills");
   assert.equal(s.json.profile.target, "pitcrew-member");
+  assert.deepEqual(s.json.connections, [], "no tool grants yet, so no connection names");
   assert.equal((await L("GET", "/link/sync?pitcrew_id=nobody")).status, 404);
   assert.equal((await L("GET", "/link/nope")).status, 404);
 });
