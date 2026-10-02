@@ -48,9 +48,9 @@ const search = async (q, community = true) => { const r = await req("GET", `/api
 test("no query: the curated list only, nothing fetched", async () => {
   const list = await search("");
   assert.ok(list.length >= 12 && list.length <= 20, `${list.length} curated entries`);
-  assert.ok(list.every((e) => e.source === "curated" && /^https:\/\//.test(e.url) && /^https:\/\//.test(e.docs) && e.id.length <= 12));
+  assert.ok(list.every((e) => e.source === "curated" && /^(https:\/\/|builtin:google$)/.test(e.url) && /^https:\/\//.test(e.docs) && e.id.length <= 12));
   assert.ok(list.filter((e) => e.auth === "bearer").every((e) => /^https:\/\//.test(e.tokenHelp)), "a token entry says where to make one");
-  assert.equal(list.find((e) => e.id === "gmail").untrusted, true);
+  assert.equal(list.find((e) => e.id === "google").untrusted, true);
   assert.deepEqual(hits, []);
 });
 

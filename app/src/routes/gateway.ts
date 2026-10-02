@@ -10,6 +10,7 @@ import { you, body, sessionCookie } from "../api.js";
 import { assertPublicUrl } from "../gateway/net.js";
 import * as G from "../gateway/store.js";
 import * as U from "../gateway/upstream.js";
+import { BUILTIN_GOOGLE } from "../gateway/google.js";
 import { callArgs, dropCalls } from "../gateway/gate.js";
 import { catalogRoutes } from "./catalog.js";
 
@@ -36,7 +37,10 @@ export const gateway = new Hono()
     }));
     if (b.auth === "bearer" && !b.token) throw httpErr(400, "Paste the token");
     // The catalog suggests an id; otherwise it is the name's slug, cut to 12 (see CONN_ID).
-    const url = (await assertPublicUrl(b.url)).href, id = b.id ?? slugify(b.name).slice(0, 12).replace(/-+$/, "");
+    // The built-in Google connection has no URL to check; it needs your own OAuth client (Google offers no registration).
+    const google = b.url === BUILTIN_GOOGLE;
+    if (google && (b.auth !== "oauth" || !b.client_id || !b.client_secret)) throw httpErr(400, "Paste your Google OAuth client id and secret");
+    const url = google ? BUILTIN_GOOGLE : (await assertPublicUrl(b.url)).href, id = google ? "google" : b.id ?? slugify(b.name).slice(0, 12).replace(/-+$/, "");
     if (!G.CONN_ID.test(id)) throw httpErr(400, "Use letters or numbers in the name");
     if (G.connRow(id)) throw httpErr(409, "A connection with that name exists");
     run("INSERT INTO connections(id,name,url,auth,untrusted,created_at) VALUES(?,?,?,?,?,?)", id, b.name, url, b.auth, b.untrusted ? 1 : 0, now());

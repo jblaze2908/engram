@@ -1,7 +1,7 @@
 // Engram's side of each upstream MCP server: one cached client per connection (never one per call), the OAuth client
 // provider whose storage is the encrypted secrets table, tools/list on connect and on a single 6 h timer.
 import { randomBytes } from "node:crypto";
-import { Client, StreamableHTTPClientTransport, auth, UnauthorizedError, type OAuthClientProvider, type OAuthClientMetadata,
+import { Client, InMemoryTransport, StreamableHTTPClientTransport, auth, UnauthorizedError, type OAuthClientProvider, type OAuthClientMetadata,
   type StoredOAuthClientInformation, type StoredOAuthTokens, type OAuthDiscoveryState, type AuthProvider } from "@modelcontextprotocol/client";
 import { HOST, now, httpErr, type HttpError } from "../config.js";
 import { one, run } from "../db.js";
@@ -11,6 +11,7 @@ import { getSecret, putSecret, getJson, putJson, dropSecret, dropSecrets } from 
 import { connRow, connRows, setState, reconcile, type ConnRow } from "./store.js";
 import { refreshRegistry } from "./catalog.js";
 import { pruneCalls } from "./gate.js";
+import { BUILTIN_GOOGLE, googleServer, googleAuthUrl, googleExchange, accessToken } from "./google.js";
 
 export const ENGRAM_URL = (process.env.ENGRAM_URL || `https://${HOST}`).replace(/\/$/, "");
 export const REDIRECT = `${ENGRAM_URL}/api/connections/oauth/callback`;
@@ -74,6 +75,13 @@ const clients = new Map<string, Promise<Client>>();
 function open(c: ConnRow) {
   const p = (async () => {
     const client = new Client({ name: "engram", version: "0.2.0" });
+    // The built-in Google connection is an MCP server in this process: same client API, no network hop.
+    if (c.url === BUILTIN_GOOGLE) {
+      const [mine, theirs] = InMemoryTransport.createLinkedPair();
+      await googleServer(c.id).connect(theirs);
+      await client.connect(mine);
+      return client;
+    }
     const transport = new StreamableHTTPClientTransport(new URL(c.url), { authProvider: authProvider(c), fetch: safeFetch, onInsufficientScope: "throw" });
     await client.connect(transport);
     return client;
@@ -103,6 +111,8 @@ export async function refreshTools(id: string) {
   const c = connRow(id);
   if (!c) throw httpErr(404, "No such connection");
   try {
+    // Its tools are local, so check the Google sign-in itself; a refresh here also keeps the token warm.
+    if (c.url === BUILTIN_GOOGLE) await accessToken(c.id);
     const client = await clientFor(c);
     const { tools } = await client.listTools(undefined, { cacheMode: "bypass", timeout: 30_000 });
     const r = reconcile(c, tools);
@@ -124,7 +134,9 @@ export async function connect(id: string, session: string): Promise<string | nul
   const c = connRow(id);
   if (!c) throw httpErr(404, "No such connection");
   await closeClient(id);
-  if (c.auth === "oauth") {
+  if (c.url === BUILTIN_GOOGLE) {
+    if (!getJson(sec(id, "tokens"))) { setState(id, "auth", "Needs you to sign in"); return googleAuthUrl(id, REDIRECT, new Provider(id, session).state()); }
+  } else if (c.auth === "oauth") {
     const p = new Provider(id, session);
     let r: string;
     try { r = await auth(p, { serverUrl: c.url, fetchFn: safeFetch }); } catch (e) {
@@ -147,7 +159,10 @@ export async function finishOAuth(state: string, code: string, iss: string | und
   run("DELETE FROM oauth_states WHERE hash=?", sha(state));
   const c = connRow(row.conn_id);
   if (!c) throw httpErr(404, "No such connection");
-  try { await auth(new Provider(c.id, session), { serverUrl: c.url, authorizationCode: code, iss, fetchFn: safeFetch }); } catch (e) {
+  try {
+    if (c.url === BUILTIN_GOOGLE) await googleExchange(c.id, code, REDIRECT);
+    else await auth(new Provider(c.id, session), { serverUrl: c.url, authorizationCode: code, iss, fetchFn: safeFetch });
+  } catch (e) {
     const d = describe(e, c);
     setState(c.id, "auth", "Sign-in failed");
     throw httpErr(502, `${c.name}: ${d.state === "auth" ? "sign-in failed" : d.error}`);
