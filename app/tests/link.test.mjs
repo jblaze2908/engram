@@ -189,6 +189,9 @@ test("memories: clean turn accepted, own list and sync, dupes, supersede own onl
   assert.equal(b.json.status, "accepted");
   assert.equal((await req("GET", `/api/memories/${a.json.id}`, undefined, { cookie })).json.status, "superseded");
   assert.equal((await req("GET", `/api/memories/${b.json.id}`, undefined, { cookie })).json.supersedes, a.json.id);
+  const fare = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Clinic offers 20% off blood tests this month", valid_until: "2026-10-31" });
+  assert.equal((await req("GET", `/api/memories/${fare.json.id}`, undefined, { cookie })).json.valid_until, "2026-10-31");
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "Bad date", valid_until: "next week" })).status, 400);
   const theirs = (await L("POST", "/link/import/memories", { pitcrew_id: "bills", items: [{ text: "Water bill is quarterly" }] })).json.ids[0];
   assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "x", supersedes: theirs })).status, 400, "only its own memories");
   assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "y", supersedes: a.json.id })).status, 400, "only active ones");

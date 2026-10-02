@@ -23,7 +23,7 @@ export const ownMemories = (m: Member): LinkMemory[] =>
   memories(ownRows(m, 200)).map((x) => ({ id: x.id, text: x.text, scope: x.scope, area: x.area, created_at: x.created_at, source: x.source.label }));
 const own = (m: Member, id: string) => { const d = docById(id); return d && d.kind === "memory" && JSON.parse(d.data)?.source?.agent === m.agent.id ? d : null; };
 
-type Remember = { text: string; supersedes?: string | null; ref?: string; untrusted?: boolean; by?: "member" | "driver" };
+type Remember = { text: string; supersedes?: string | null; ref?: string; untrusted?: boolean; by?: "member" | "driver"; valid_until?: string | null };
 // Clean turn: accepted directly, like the one-shot import (Pitcrew is trusted and you saw it said in the thread).
 // Tainted turn, or a member rewriting something you added: the ordinary write path, which holds it for you.
 export async function remember(link: Agent, m: Member, b: Remember): Promise<ProposeResult> {
@@ -32,7 +32,7 @@ export async function remember(link: Agent, m: Member, b: Remember): Promise<Pro
   if (b.supersedes && (!old || old.status !== "active")) throw httpErr(400, "It can only replace one of this member's own active memories");
   const yours = old && JSON.parse(old.data)?.source?.kind === "you";
   if (b.untrusted || (yours && !driver)) {
-    const r = await propose(m.agent, { kind: "memory", text, area: m.area, scope: m.scope, supersedes: b.supersedes ?? null, source: { kind: "agent", label: `pitcrew:${m.agent.name}`, ref: b.ref ?? null } }, b.untrusted ? [TAINTED] : []);
+    const r = await propose(m.agent, { kind: "memory", text, area: m.area, scope: m.scope, supersedes: b.supersedes ?? null, valid_until: b.valid_until ?? null, source: { kind: "agent", label: `pitcrew:${m.agent.name}`, ref: b.ref ?? null } }, b.untrusted ? [TAINTED] : []);
     trace(actorOf(link), "link.remember", r.id, r.status === "accepted" ? "ok" : "held", m.scope, `${m.agent.name}: ${short(text)}`);
     return r;
   }
@@ -43,7 +43,7 @@ export async function remember(link: Agent, m: Member, b: Remember): Promise<Pro
     const source: Source = driver ? { kind: "you", label: "Added in Pitcrew", agent: m.agent.id, ref: b.ref ?? null, at: t } : { kind: "agent", label: `pitcrew:${m.agent.name}`, agent: m.agent.id, ref: b.ref ?? null, at: t };
     const mem: Omit<Memory, "reads"> = {
       id: uid("m"), text, area: m.area, project: null, entities: [], scope: m.scope, source, trust: "trusted", status: "active",
-      observed_at: t, valid_from: null, valid_until: null, supersedes: old?.id ?? null, superseded_by: null, created_at: t, accepted_at: t,
+      observed_at: t, valid_from: null, valid_until: b.valid_until ?? null, supersedes: old?.id ?? null, superseded_by: null, created_at: t, accepted_at: t,
     };
     const paths = [memoryPath(mem)];
     if (old) {
