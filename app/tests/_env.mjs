@@ -7,6 +7,8 @@ import { execFileSync } from "node:child_process";
 
 export const ROOT = mkdtempSync(join(tmpdir(), "engram-test-"));
 process.env.ENGRAM_ROOT = ROOT;
+// No live MCP Registry sync in tests; the catalog test drives it against a local stand-in.
+process.env.ENGRAM_REGISTRY_SYNC ??= "0";
 const { boot, listen } = await import("../dist/src/server.js");
 await boot();
 const server = await listen(0, "127.0.0.1");

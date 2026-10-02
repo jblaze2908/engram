@@ -9,6 +9,7 @@ import { sha, safeEq } from "../auth.js";
 import { safeFetch } from "./net.js";
 import { getSecret, putSecret, getJson, putJson, dropSecret, dropSecrets } from "./secrets.js";
 import { connRow, connRows, setState, reconcile, type ConnRow } from "./store.js";
+import { refreshRegistry } from "./catalog.js";
 import { pruneCalls } from "./gate.js";
 
 export const ENGRAM_URL = (process.env.ENGRAM_URL || `https://${HOST}`).replace(/\/$/, "");
@@ -162,9 +163,12 @@ export async function forget(id: string) {
 }
 
 // One timer for every connection: every 15 min, refresh those not listed in 6 h (and drop expired call results). A restart doesn't reset the clock.
+// The same tick keeps the MCP Registry copy for the catalog at most a day old.
 export function startGateway() {
+  if (process.env.ENGRAM_REGISTRY_SYNC !== "0") void refreshRegistry();
   const t = setInterval(async () => {
     pruneCalls();
+    if (process.env.ENGRAM_REGISTRY_SYNC !== "0") void refreshRegistry();
     for (const c of connRows()) {
       if (c.state === "new" || (c.state === "auth" && c.auth === "oauth")) continue;
       if (c.refreshed_at && now() - c.refreshed_at < REFRESH_EVERY) continue;

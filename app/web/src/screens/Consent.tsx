@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import type { Grant, ProfileTarget } from "../../../shared/types";
 import { api } from "../lib/api";
-import { TARGET_LABEL, TARGETS } from "../lib/labels";
+// A chat app picks a size, not a client name: Full is the 200-line compile, Short the 60-line one Pitcrew members get.
+const PROFILE_CHOICES: [ProfileTarget, string, string][] = [
+  ["claude-code", "Full", "Up to 200 lines: how you work, your voice and your rules, within the scopes below."],
+  ["pitcrew-member", "Short", "Up to 60 lines: the essentials, for a narrow helper."],
+];
 import { useLoad } from "../lib/useLoad";
 import { Btn, Card, ErrorNote, Loading, Logo } from "../components/ui";
 import { GrantTable, normalise } from "./Agents";
@@ -14,7 +18,7 @@ export function Consent({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const r = load.data;
-  useEffect(() => { if (r?.agent) { setGrants(normalise(r.agent.grants)); setProfile(r.agent.profile); } }, [r]);
+  useEffect(() => { if (r?.agent) { setGrants(normalise(r.agent.grants)); setProfile(r.agent.profile === "pitcrew-member" ? "pitcrew-member" : "claude-code"); } }, [r]);
 
   async function answer(allow: boolean) {
     setBusy(true); setError(null);
@@ -38,12 +42,15 @@ export function Consent({ id }: { id: string }) {
             <p className="font-mono text-[12px] text-ink-3 mt-2 break-all">{r.redirect_uri}</p>
             {r.agent && <p className="text-[13.5px] text-ink-2 mt-4">It’s already connected as {r.agent.name}; allowing replaces what it can see.</p>}
             <Card className="mt-6 p-5">
-              <label className="flex flex-col gap-1.5 text-[13px] text-ink-3 max-w-[280px]">
-                Profile it gets
-                <select value={profile} disabled={busy} onChange={(e) => setProfile(e.target.value as ProfileTarget)} className="field">
-                  {TARGETS.map((t) => <option key={t} value={t}>{TARGET_LABEL[t]}</option>)}
-                </select>
-              </label>
+              <fieldset className="flex flex-col gap-2" disabled={busy}>
+                <legend className="text-[13px] text-ink-3 mb-1">How much of your profile it gets</legend>
+                {PROFILE_CHOICES.map(([t, name, help]) => (
+                  <label key={t} className="flex items-start gap-2.5 text-[14px]">
+                    <input type="radio" name="profile" checked={profile === t} onChange={() => setProfile(t)} className="mt-[4px]" />
+                    <span><span className="font-medium">{name}</span><span className="block text-[12.5px] text-ink-3">{help}</span></span>
+                  </label>
+                ))}
+              </fieldset>
             </Card>
             <p className="text-[13px] text-ink-3 mt-6 mb-2 px-1">What it can see</p>
             <GrantTable grants={grants} onChange={setGrants} disabled={busy} />

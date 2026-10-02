@@ -157,6 +157,8 @@ export interface CatalogEntry {
   /** Offers dynamic client registration, so OAuth needs nothing pasted. */
   dcr?: boolean | null; untrusted: boolean; docs?: string | null; tokenHelp?: string | null; icon?: string | null;
   source: "curated" | "registry"; connected?: boolean;
+  /** Registry only: the publisher's namespace, and whether it owns the URL's host (e.g. com.notion → mcp.notion.com). */
+  publisher?: string | null; verified?: boolean;
 }
 /** Per upstream tool: run, hold for your approval, or refuse. Write tools default to ask. */
 export type ToolPolicy = "allow" | "ask" | "block";

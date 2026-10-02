@@ -6,27 +6,28 @@ import { Btn, cx, Toggle } from "./ui";
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const HOW: Record<ConnectionAuth, string> = { oauth: "Sign in", bearer: "Token", none: "No sign-in" };
 
-/** "Add from catalog": hand-picked servers first, then the MCP Registry. Typing is debounced; the server caches the registry for a day. */
+/** "Add from catalog": hand-picked servers; the MCP Registry (thousands, unreviewed) only when you ask. Typing is debounced; search runs on Engram's daily copy. */
 export function AddFromCatalog({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: (r: ConnectResult) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [q, setQ] = useState("");
   const [list, setList] = useState<CatalogEntry[] | null>(null);
   const [picked, setPicked] = useState<CatalogEntry | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [community, setCommunity] = useState(false);
 
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) { setQ(""); setPicked(null); setError(null); d.showModal(); }
+    if (open && !d.open) { setQ(""); setPicked(null); setError(null); setCommunity(false); d.showModal(); }
     else if (!open && d.open) d.close();
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     let live = true;
-    const t = setTimeout(() => api.catalog(q.trim()).then((r) => { if (live) { setList(r); setError(null); } }, (e) => { if (live) setError(errText(e)); }), q.trim() ? 400 : 0);
+    const t = setTimeout(() => api.catalog(q.trim(), community).then((r) => { if (live) { setList(r); setError(null); } }, (e) => { if (live) setError(errText(e)); }), q.trim() ? 400 : 0);
     return () => { live = false; clearTimeout(t); };
-  }, [q, open]);
+  }, [q, open, community]);
 
   const curated = (list ?? []).filter((e) => e.source === "curated"), registry = (list ?? []).filter((e) => e.source === "registry");
   return (
@@ -36,14 +37,18 @@ export function AddFromCatalog({ open, onClose, onAdded }: { open: boolean; onCl
         <div className="p-6 flex flex-col gap-4">
           <div>
             <h2 id="cat-title" className="text-[20px] font-semibold tracking-[-0.015em]">Add from catalog</h2>
-            <p className="text-[13px] text-ink-3 mt-1">Hand-picked servers first, then anything in the public MCP Registry.</p>
+            <p className="text-[13px] text-ink-3 mt-1">Hand-picked servers, checked against each vendor's docs.</p>
           </div>
           <input autoFocus type="search" value={q} onChange={(e) => setQ(e.target.value)} className="field" placeholder="Search: notion, calendar, github…" aria-label="Search the catalog" maxLength={60} />
+          <label className="flex items-start gap-2 text-[13px] text-ink-2">
+            <input type="checkbox" checked={community} onChange={(e) => setCommunity(e.target.checked)} className="mt-[3px]" />
+            <span>Also search community servers from the public MCP Registry. Anyone can publish there and nobody reviews them; they connect as untrusted, with every write tool asking you first.</span>
+          </label>
           {error && <p role="alert" className="text-[13px] text-bad">{error}</p>}
           <div className="flex flex-col -mx-2 overflow-y-auto max-h-[480px]">
-            {list && !list.length && <p className="px-2 text-[13px] text-ink-3">Nothing matches. Try another word, or add it by URL.</p>}
+            {list && !list.length && <p className="px-2 text-[13px] text-ink-3">{community ? "Nothing matches. Try another word, or add it by URL. (Engram copies the registry once a day; just after a restart the copy can take a couple of minutes.)" : !q.trim() ? "Nothing matches. Try another word, or add it by URL." : "No hand-picked server matches. Tick community servers to search the registry, or add it by URL."}</p>}
             {curated.map((e) => <Row key={e.url} e={e} onPick={setPicked} />)}
-            {registry.length > 0 && <p className="px-2 pt-4 pb-1 text-[12px] text-ink-3">From the MCP Registry · not checked by Engram</p>}
+            {registry.length > 0 && <p className="px-2 pt-4 pb-1 text-[12px] text-ink-3">Community · unreviewed · from the MCP Registry</p>}
             {registry.map((e) => <Row key={e.url} e={e} onPick={setPicked} />)}
           </div>
           <div className="flex justify-end"><Btn kind="quiet" onClick={onClose}>Close</Btn></div>
@@ -53,12 +58,14 @@ export function AddFromCatalog({ open, onClose, onAdded }: { open: boolean; onCl
   );
 }
 
+const host = (u: string) => { try { return new URL(u).hostname; } catch { return u; } };
+
 function Row({ e, onPick }: { e: CatalogEntry; onPick: (e: CatalogEntry) => void }) {
   return (
     <button type="button" disabled={e.connected} onClick={() => onPick(e)}
       className={cx("text-left rounded-[10px] px-2 py-2.5 flex items-start gap-3", e.connected ? "opacity-60 cursor-default" : "hover:bg-surface-2")}>
       <span className="flex-1 min-w-0">
-        <span className="block text-[14px] truncate">{e.name}</span>
+        <span className="block text-[14px] truncate">{e.name}{e.source === "registry" && <span className="text-[12px] text-ink-3"> · on {host(e.url)}{e.verified ? ", the publisher's own domain" : ", publisher not verified"}</span>}</span>
         <span className="block text-[12.5px] text-ink-3 mt-0.5 line-clamp-2">{e.description}</span>
       </span>
       <span className="flex-none text-[12px] text-ink-3 pt-0.5">

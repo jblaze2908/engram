@@ -113,7 +113,7 @@ export const api = {
   approveTool: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/approve`),
   keepBlocked: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/keep`),
   setToolPolicy: (id: string, tool: string, policy: ToolPolicy | null) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}/tools/${enc(tool)}`, { policy }),
-  catalog: (q: string) => request<CatalogEntry[]>("GET", `/api/catalog${qs({ q })}`),
+  catalog: (q: string, community = false) => request<CatalogEntry[]>("GET", `/api/catalog${qs({ q, community: community ? "1" : undefined })}`),
   probe: (url: string) => request<{ auth: ConnectionAuth; dcr: boolean | null; scopes: string[] }>("POST", "/api/catalog/probe", { url }),
   callArgs: (proposal: string) => request<{ call: string; status: string; args: Record<string, unknown> | null }>("GET", `/api/calls/${enc(proposal)}`),
   setAgentTools: (id: string, tools: string[]) => request<Agent>("PUT", `/api/agents/${enc(id)}/tools`, { tools }),

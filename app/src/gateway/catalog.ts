@@ -4,11 +4,13 @@ import { discoverOAuthServerInfo, extractWWWAuthenticateParams } from "@modelcon
 import type { CatalogEntry, ConnectionAuth } from "../../shared/types.js";
 import curated from "./catalog.json" with { type: "json" };
 import { now, slugify, httpErr } from "../config.js";
-import { db, one, run } from "../db.js";
+import { all, db, one, run } from "../db.js";
 import { assertPublicUrl, checkUrl, safeFetch } from "./net.js";
 import { connRows } from "./store.js";
 
-db.exec("CREATE TABLE IF NOT EXISTS catalog_cache (q TEXT PRIMARY KEY, body TEXT NOT NULL, at INTEGER NOT NULL)");
+// The registry's search answers in 20–25 s uncached (measured 2026-10-02), so the whole list is synced daily and searched here.
+db.exec(`DROP TABLE IF EXISTS catalog_cache;
+CREATE TABLE IF NOT EXISTS catalog_registry (name TEXT PRIMARY KEY, body TEXT NOT NULL, text TEXT NOT NULL);`);
 
 const TTL = 24 * 3600_000;
 const CURATED = (curated as Omit<CatalogEntry, "source">[]).map((e): CatalogEntry => ({ ...e, source: "curated" }));
@@ -28,7 +30,7 @@ type Listed = { server?: { name?: string; title?: string; description?: string; 
 /** Publisher text is untrusted: clipped, and shown only as text. auth is a guess until you probe it on pick. */
 function fromRegistry(list: Listed[]): CatalogEntry[] {
   const out: CatalogEntry[] = [];
-  for (const { server: s, _meta } of list.slice(0, 50)) {
+  for (const { server: s, _meta } of list) {
     if (!s?.name || _meta?.["io.modelcontextprotocol.registry/official"]?.status === "deleted") continue;
     // A required header other than Authorization (or a templated URL) is something Engram can't send.
     const r = (s.remotes || []).find((x) => x.type === "streamable-http" && fetchable(x.url)
@@ -39,45 +41,74 @@ function fromRegistry(list: Listed[]): CatalogEntry[] {
     out.push({
       id: slugify(s.title || s.name.split("/").pop() || s.name).slice(0, 12).replace(/-+$/, ""), name: clip(s.title || s.name, 80),
       description: clip(s.description, 200), url: r.url!, auth: bearer ? "bearer" : "oauth", dcr: null, untrusted: true,
-      docs: typeof s.websiteUrl === "string" && /^https:\/\//.test(s.websiteUrl) ? s.websiteUrl.slice(0, 500) : null, tokenHelp: null, icon: icon?.slice(0, 500) ?? null, source: "registry",
+      publisher: s.name.slice(0, 200), docs: typeof s.websiteUrl === "string" && /^https:\/\//.test(s.websiteUrl) ? s.websiteUrl.slice(0, 500) : null, tokenHelp: null, icon: icon?.slice(0, 500) ?? null, source: "registry",
     });
   }
   return out;
 }
 
-async function fetchRegistry(q: string) {
-  const r = await safeFetch(`${registry()}/v0.1/servers?${new URLSearchParams({ search: q, limit: "30", version: "latest" })}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(8000) });
-  if (!r.ok) { await r.body?.cancel().catch(() => {}); throw httpErr(502, `registry answered ${r.status}`); }
-  const body = await r.json() as { servers?: Listed[] };
-  return fromRegistry(Array.isArray(body.servers) ? body.servers : []);
+const SYNC_EVERY = 24 * 3600_000, PAGES = 200;
+let syncing: Promise<number> | null = null;
+
+/** Pages through every latest server (100 a page, cursor-based); keeps the old list if any page fails. */
+async function syncRegistry(): Promise<number> {
+  const found: CatalogEntry[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < PAGES; page++) {
+    const qs = new URLSearchParams({ limit: "100", version: "latest", ...(cursor ? { cursor } : {}) });
+    const r = await safeFetch(`${registry()}/v0.1/servers?${qs}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(60_000) });
+    if (!r.ok) { await r.body?.cancel().catch(() => {}); throw httpErr(502, `registry answered ${r.status}`); }
+    const body = await r.json() as { servers?: Listed[]; metadata?: { nextCursor?: string } };
+    found.push(...fromRegistry(Array.isArray(body.servers) ? body.servers : []));
+    cursor = typeof body.metadata?.nextCursor === "string" ? body.metadata.nextCursor : undefined;
+    if (!cursor) break;
+  }
+  db.exec("BEGIN");
+  try {
+    run("DELETE FROM catalog_registry");
+    for (const e of found) run("INSERT OR REPLACE INTO catalog_registry(name,body,text) VALUES(?,?,?)", e.url, JSON.stringify(e), `${e.id} ${e.name} ${e.description}`.toLowerCase());
+    run("INSERT INTO settings(key,value) VALUES('catalog_synced',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", String(now()));
+    db.exec("COMMIT");
+  } catch (e) { db.exec("ROLLBACK"); throw e; }
+  return found.length;
 }
 
-// One fetch per query a day: concurrent asks share it, a failure isn't cached and falls back to a stale copy.
-const inflight = new Map<string, Promise<CatalogEntry[]>>();
-async function registryHits(q: string): Promise<CatalogEntry[]> {
-  const row = one<{ body: string; at: number }>("SELECT body, at FROM catalog_cache WHERE q=?", q);
-  if (row && now() - row.at < TTL) return JSON.parse(row.body);
-  let p = inflight.get(q);
-  if (!p) {
-    p = fetchRegistry(q).then((e) => {
-      run("INSERT INTO catalog_cache(q,body,at) VALUES(?,?,?) ON CONFLICT(q) DO UPDATE SET body=excluded.body, at=excluded.at", q, JSON.stringify(e), now());
-      run("DELETE FROM catalog_cache WHERE at<?", now() - TTL);
-      return e;
-    }).finally(() => inflight.delete(q));
-    inflight.set(q, p);
-  }
-  try { return await p; } catch (e) {
-    console.error("catalog: registry unavailable:", (e as Error).message);
-    return row ? JSON.parse(row.body) : [];
-  }
+/** One sync at a time; called at boot and hourly, a no-op until the list is a day old. */
+export function refreshRegistry(force = false) {
+  const last = Number(one<{ value: string }>("SELECT value FROM settings WHERE key='catalog_synced'")?.value || 0);
+  if (syncing || (!force && now() - last < SYNC_EVERY)) return syncing;
+  syncing = syncRegistry().then((n) => { console.log(`catalog: ${n} registry servers synced`); return n; })
+    .catch((e) => { console.error("catalog: registry sync failed:", (e as Error).message); return 0; })
+    .finally(() => { syncing = null; });
+  return syncing;
 }
 
-/** Curated matches first; registry results only for 2+ characters, minus servers already curated. */
-export async function catalog(raw: string): Promise<CatalogEntry[]> {
+/** A verified namespace like com.notion/… owning the URL's host (mcp.notion.com) is the strongest signal an entry is the vendor's own. */
+const ownsHost = (e: CatalogEntry) => {
+  const ns = (e.publisher || "").split("/")[0].split(".").reverse().join(".");
+  try { const h = new URL(e.url).hostname; return !!ns && ns.includes(".") && (h === ns || h.endsWith(`.${ns}`)); } catch { return false; }
+};
+
+/** Every word must appear; then title hits beat description hits, and publisher-owned hosts rank first. */
+function registryHits(words: string[]): CatalogEntry[] {
+  if (!words.length) return [];
+  const where = words.map(() => "text LIKE ? ESCAPE '\\'").join(" AND ");
+  const like = words.map((w) => `%${w.replace(/[\\%_]/g, (c) => `\\${c}`)}%`);
+  const score = (e: CatalogEntry) => {
+    const title = `${e.id} ${e.name}`.toLowerCase(), desc = e.description.toLowerCase();
+    return words.reduce((n, w) => n + (title.includes(w) ? 3 : desc.includes(w) ? 1 : 0), 0) + (ownsHost(e) ? 4 : 0);
+  };
+  return all<{ body: string }>(`SELECT body FROM catalog_registry WHERE ${where} LIMIT 500`, ...like)
+    .map((r) => JSON.parse(r.body) as CatalogEntry)
+    .map((e) => ({ e, n: score(e) })).sort((a, b) => b.n - a.n || a.e.name.localeCompare(b.e.name)).slice(0, 30).map((x) => ({ ...x.e, verified: ownsHost(x.e) }));
+}
+
+/** Curated matches; registry results (unreviewed) only when asked for, for 2+ characters, minus servers already curated. */
+export async function catalog(raw: string, community = false): Promise<CatalogEntry[]> {
   const q = raw.toLowerCase().replace(/\s+/g, " ").trim().slice(0, 60), words = q.split(" ").filter(Boolean);
   const mine = CURATED.filter((e) => words.every((w) => `${e.id} ${e.name} ${e.description}`.toLowerCase().includes(w)));
   const curatedUrls = new Set(CURATED.map((e) => same(e.url)));
-  const reg = q.length >= 2 ? (await registryHits(q)).filter((e) => !curatedUrls.has(same(e.url))) : [];
+  const reg = community && q.length >= 2 ? registryHits(words).filter((e) => !curatedUrls.has(same(e.url))) : [];
   const have = new Set(connRows().map((c) => same(c.url)));
   return [...mine, ...reg].map((e) => ({ ...e, connected: have.has(same(e.url)) }));
 }
