@@ -141,11 +141,11 @@ export const api = new Hono()
 
   .get("/api/agents", you, (c) => c.json(G.listAgents()))
   .post("/api/agents", you, async (c) => {
-    const b = await body(c, z.object({ name, kind: z.enum(["pitcrew", "mac", "other"]), profile: target, grants: z.array(grant).max(4).default([]) }));
+    const b = await body(c, z.object({ name, kind: z.enum(["pitcrew", "mac", "other"]), profile: target, grants: z.array(grant).max(5).default([]) }));
     return c.json(G.createAgent(b));
   })
   .patch("/api/agents/:id", you, async (c) => {
-    const b = await body(c, z.object({ name: name.optional(), grants: z.array(grant).max(4).optional(), skills: z.array(z.string().regex(SLUG)).max(100).optional() }));
+    const b = await body(c, z.object({ name: name.optional(), grants: z.array(grant).max(5).optional(), skills: z.array(z.string().regex(SLUG)).max(100).optional(), auto_accept: z.boolean().optional() }));
     return c.json(G.updateAgent(id(c), b));
   })
   .post("/api/agents/:id/token", you, (c) => c.json(G.rotateToken(id(c))))

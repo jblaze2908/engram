@@ -6,6 +6,7 @@ import { now, slugify, httpErr } from "../config.js";
 import { run, one } from "../db.js";
 import { getAgent } from "../agents.js";
 import { trace, YOU } from "../trace.js";
+import { forgetConnectionMemories } from "../proposals.js";
 import { you, body, sessionCookie } from "../api.js";
 import { assertPublicUrl } from "../gateway/net.js";
 import * as G from "../gateway/store.js";
@@ -72,13 +73,16 @@ export const gateway = new Hono()
   })
   .post("/api/connections/:id/connect", you, async (c) => c.json(await connectOrState(c, cid(c))))
   .post("/api/connections/:id/refresh", you, async (c) => { const id = cid(c); await U.refreshTools(id); return c.json(result(id, null)); })
+  .post("/api/connections/:id/forget-memories", you, async (c) => c.json({ forgotten: await forgetConnectionMemories(cid(c)) }))
   .delete("/api/connections/:id", you, async (c) => {
     const id = cid(c);
+    // ?memories=forget: disconnecting also forgets what agents saved from it (features §6).
+    const forgotten = c.req.query("memories") === "forget" ? await forgetConnectionMemories(id) : 0;
     await U.forget(id);
     dropCalls(id);
     G.deleteConnection(id);
-    trace(YOU, "connection.remove", id);
-    return c.json({ ok: true });
+    trace(YOU, "connection.remove", id, "ok", null, forgotten ? `${forgotten} memories forgotten` : null);
+    return c.json({ ok: true, forgotten });
   })
   .patch("/api/connections/:id/tools/:tool", you, async (c) => {
     const id = cid(c), t = tname(c), b = await body(c, z.object({ kind: z.enum(["read", "write"]).nullable().optional(), policy: z.enum(["allow", "ask", "block"]).nullable().optional() }));

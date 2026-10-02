@@ -54,6 +54,7 @@ export function toRecord(rel: string, src: string, mtime: number): Indexed | nul
       trust: UNTRUSTED.includes(source.kind) ? "untrusted" : "trusted", status,
       observed_at: num(fm.observed_at, mtime), valid_from: opt(fm.valid_from), valid_until: opt(fm.valid_until),
       supersedes: opt(fm.supersedes), superseded_by: opt(fm.superseded_by), created_at: num(fm.created_at, mtime), accepted_at: typeof fm.accepted_at === "number" ? fm.accepted_at : null,
+      ...(strs(fm.connections).length ? { connections: strs(fm.connections) } : {}),
     };
     return { ...base, id, kind: "memory", title: text.slice(0, 80), scope, status, norm: norm(text), source_ref: source.ref ?? null, at: data.created_at, valid_until: data.valid_until, data };
   }

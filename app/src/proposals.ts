@@ -10,6 +10,7 @@ import { readDoc, writeDoc, writeRaw, commit, withVault } from "./vault.js";
 import { indexPaths, sourceOf } from "./index.js";
 import { trace, YOU, type Actor } from "./trace.js";
 import { canPropose, readScopes } from "./agents.js";
+import { tainted } from "./gateway/gate.js";
 import { memoryById, areaExists, docById, docData } from "./store.js";
 import { proposed } from "./notify.js";
 import { useRemoteVersion } from "./vaultsync.js";
@@ -46,7 +47,15 @@ export const memoryFm = (m: Omit<Memory, "text" | "reads">) => ({
   id: m.id, area: m.area, project: m.project ?? null, entities: m.entities, scope: m.scope, source: m.source, status: m.status,
   observed_at: m.observed_at, valid_from: m.valid_from ?? null, valid_until: m.valid_until ?? null,
   supersedes: m.supersedes ?? null, superseded_by: m.superseded_by ?? null, created_at: m.created_at, accepted_at: m.accepted_at ?? null,
+  ...(m.connections?.length ? { connections: m.connections } : {}),
 });
+
+const FROM_MS = 10 * 60000;
+/** Connections this agent called in the last 10 min, from the trace (agent, at index): one small read per memory written. */
+export function recentConnections(agent: string, t = now()): string[] {
+  const rows = all<{ target: string }>("SELECT DISTINCT target FROM trace WHERE agent=? AND action='tool' AND at>? AND result IN ('ok','error')", agent, t - FROM_MS);
+  return [...new Set(rows.map((r) => r.target.split("__")[0]))].sort();
+}
 export const memoryPath = (m: { id: string; created_at: number }) => { const [y, mo] = ym(m.created_at); return `memories/${y}/${mo}/${m.id}.md`; };
 
 function refuse(who: Actor, action: string, target: string, scope: Scope | null, msg: string, result: "refused" | "blocked" = "refused"): never {
@@ -87,9 +96,10 @@ async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[])
   const scope = input.scope || "personal";
   if (!canPropose(agent, scope)) refuse(who, "propose", input.kind, scope, `No propose grant for ${scope}`);
   const reasons: string[] = [...extra];
-  // Rule 2: untrusted sources are quarantined whatever they say.
+  // Rule 2: untrusted sources are quarantined whatever they say, and so is whatever an agent writes just after reading one.
   if (source.kind === "email") reasons.push("Email content is never trusted on its own");
   if (source.kind === "web") reasons.push("Web pages are never trusted on their own");
+  if (!extra.length && tainted(agent.id)) reasons.push("This agent read untrusted content in the last 10 minutes");
 
   let data: Record<string, unknown>, title: string, replaces: Proposal["replaces"] = null, key: string | null = null;
   if (input.kind === "memory") {
@@ -119,6 +129,7 @@ async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[])
       trust: UNTRUSTED.includes(source.kind) ? "untrusted" : "trusted", status: "active",
       observed_at: input.observed_at ?? t, valid_from: input.valid_from ?? null, valid_until: input.valid_until ?? null,
       supersedes: input.supersedes ?? null, superseded_by: null, created_at: t, accepted_at: null,
+      ...(() => { const c = recentConnections(agent.id, t); return c.length ? { connections: c } : {}; })(),
     };
     data = m; title = text.slice(0, 120);
   } else if (input.kind === "entity") {
@@ -148,8 +159,21 @@ async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[])
   run("INSERT INTO proposals(id,kind,agent,title,scope,area,data,norm,source,source_ref,reasons,held,replaces,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     id, input.kind, agent.name, title, scope, area, JSON.stringify(data), key, JSON.stringify(source), source.ref ?? null, JSON.stringify(reasons), held ? 1 : 0, JSON.stringify(replaces), "open", t);
   trace(who, "propose", id, held ? "held" : "ok", scope, `${input.kind}: ${short(title)}`);
+  // Your standing rule for this agent: a clean memory or entity skips the inbox. Anything with a reason still waits.
+  if (!held && agent.auto_accept && (input.kind === "memory" || input.kind === "entity")) {
+    await acceptLocked(toProposal(one("SELECT * FROM proposals WHERE id=?", id)!), { id: null, name: `you (rule for ${agent.name})` });
+    return { status: "accepted", id: (data as { id: string }).id, reasons: [] };
+  }
   proposed();
   return { status: held ? "held" : "open", id, reasons };
+}
+
+async function acceptLocked(p: Proposal, who: Actor) {
+  const t = now(), { paths, msg } = write(p, t);
+  await commit(paths, msg);
+  indexPaths(paths);
+  run("UPDATE proposals SET status='accepted', decided_at=? WHERE id=?", t, p.id);
+  trace(who, "accept", p.id, "ok", p.scope, short(p.title));
 }
 
 // Writes the accepted record; returns the vault paths it touched and the commit message.
@@ -208,11 +232,7 @@ export async function decide(id: string, decision: Decision, who: Actor = YOU): 
     const p = toProposal(r), t = now();
     if (p.kind === "tool_change") { decideToolChange(p, decision, who); return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!); }
     if (decision === "accept") {
-      const { paths, msg } = write(p, t);
-      await commit(paths, msg);
-      indexPaths(paths);
-      run("UPDATE proposals SET status='accepted', decided_at=? WHERE id=?", t, id);
-      trace(who, "accept", id, "ok", p.scope, short(p.title));
+      await acceptLocked(p, who);
       if (p.kind === "artifact") writeManifest();
     } else {
       run("UPDATE proposals SET status='rejected', decided_at=? WHERE id=?", t, id);
@@ -239,6 +259,26 @@ async function forgetWhere(source: Source, who: Actor) {
   indexPaths(paths);
   trace(who, "forget", source.ref!, "ok", null, `${paths.length} memories`);
   return paths.length;
+}
+
+/** Forget-by-connection: every active memory saved within 10 min of a call to it. Reversible like any forget. */
+export const connectionMemories = (conn: string) =>
+  all<{ id: string; path: string }>("SELECT d.id, d.path FROM docs d, json_each(d.data,'$.connections') c WHERE d.kind='memory' AND d.status='active' AND c.value=?", conn);
+export function forgetConnectionMemories(conn: string, who: Actor = YOU) {
+  return withVault(async () => {
+    const paths: string[] = [];
+    for (const r of connectionMemories(conn)) {
+      const doc = readDoc(r.path);
+      if (!doc) continue;
+      writeDoc(r.path, { fm: { ...doc.fm, status: "forgotten" }, body: doc.body });
+      paths.push(r.path);
+    }
+    if (!paths.length) return 0;
+    await commit(paths, `forget: ${paths.length} made from connection ${conn}`);
+    indexPaths(paths);
+    trace(who, "forget", `connection:${conn}`, "ok", null, `${paths.length} memories`);
+    return paths.length;
+  });
 }
 
 export function forgetMemory(id: string, who: Actor = YOU) {

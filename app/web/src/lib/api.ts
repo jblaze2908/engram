@@ -95,7 +95,7 @@ export const api = {
 
   agents: () => request<Agent[]>("GET", "/api/agents"),
   createAgent: (a: NewAgent) => request<NewToken>("POST", "/api/agents", a),
-  updateAgent: (id: string, patch: Partial<Pick<Agent, "grants" | "skills" | "name">>) =>
+  updateAgent: (id: string, patch: Partial<Pick<Agent, "grants" | "skills" | "name" | "auto_accept">>) =>
     request<Agent>("PATCH", `/api/agents/${enc(id)}`, patch),
   newToken: (id: string) => request<NewToken>("POST", `/api/agents/${enc(id)}/token`),
   revoke: (id: string) => request<unknown>("POST", `/api/agents/${enc(id)}/revoke`),
@@ -111,7 +111,8 @@ export const api = {
   updateConnection: (id: string, patch: { untrusted?: boolean; token?: string }) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}`, patch),
   connect: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/connect`),
   refreshConnection: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/refresh`),
-  disconnect: (id: string) => request<unknown>("DELETE", `/api/connections/${enc(id)}`),
+  disconnect: (id: string, forgetMemories = false) => request<{ ok: true; forgotten: number }>("DELETE", `/api/connections/${enc(id)}${forgetMemories ? "?memories=forget" : ""}`),
+  forgetConnectionMemories: (id: string) => request<{ forgotten: number }>("POST", `/api/connections/${enc(id)}/forget-memories`),
   finishOAuth: (p: { state: string; code: string; iss?: string }) => request<ConnectResult>("POST", "/api/connections/oauth/finish", p),
   setToolKind: (id: string, tool: string, kind: "read" | "write" | null) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}/tools/${enc(tool)}`, { kind }),
   approveTool: (id: string, tool: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/tools/${enc(tool)}/approve`),

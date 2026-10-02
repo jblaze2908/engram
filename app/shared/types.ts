@@ -32,6 +32,8 @@ export interface Memory {
   observed_at: number; valid_from?: string | null; valid_until?: string | null;
   supersedes?: string | null; superseded_by?: string | null;
   created_at: number; accepted_at?: number | null; reads: number;
+  /** Connections the proposing agent called in the 10 minutes before: what forget-by-connection removes. */
+  connections?: string[];
 }
 
 export type EntityKind = "person" | "place" | "account" | "document" | "thing";
@@ -66,6 +68,8 @@ export interface Agent {
   hue?: string | null; grants: Grant[]; skills: string[]; tools?: ToolGrant[];
   /** May use the Pitcrew link API (one per install). */
   link?: boolean;
+  /** Its memories and entities are accepted without the inbox when nothing flags them (spec §17). */
+  auto_accept?: boolean;
   token_prefix: string; created_at: number; last_used_at?: number | null; revoked: boolean;
 }
 /** Returned once when a token is created or rotated; only its hash is stored. */
@@ -127,6 +131,8 @@ export interface ConnectionTool { name: string; kind: "read" | "write"; policy: 
 export interface ConnectionDetail extends Connection {
   url: string; auth: ConnectionAuth; untrusted: boolean; connected_at: number | null; refreshed_at: number | null;
   tools: ConnectionTool[]; changes: { tool: string; approved: string; now: string }[];
+  /** Active memories an agent saved within 10 minutes of calling this connection. */
+  memories: number;
 }
 /** An agent's access to one upstream tool, written "<connection>/<tool>". Write tools are never granted by default. */
 export type ToolGrant = string;

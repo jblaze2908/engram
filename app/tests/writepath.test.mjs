@@ -103,3 +103,30 @@ test("episodes from an agent are accepted directly", async () => {
   const j = (await req("GET", "/api/journal", undefined, { cookie })).json;
   assert.ok(j.entries.some((e) => e.id === r.data.id && e.who === "Mail reader"));
 });
+
+test("auto-accept: a clean memory from an agent you trust skips the inbox; flagged ones and tainted agents still wait", async () => {
+  const { run } = await import("../dist/src/db.js");
+  const t = await makeAgent(cookie, "Notes app", [g("personal", true, "propose")]);
+  const on = await req("PATCH", `/api/agents/${t.agent.id}`, { auto_accept: true }, { cookie });
+  assert.equal(on.json.auto_accept, true);
+  const clean = await call(t.token, "propose", { kind: "memory", text: "The balcony plants get water on Sundays", area: "home" });
+  assert.equal(clean.data.status, "accepted");
+  const m = (await req("GET", `/api/memories/${clean.data.id}`, undefined, { cookie })).json;
+  assert.equal(m.status, "active");
+  assert.ok(!(await inbox()).some((p) => p.title.startsWith("The balcony plants")), "never in the inbox");
+  assert.ok(gitLog().some((s) => s.startsWith("memory: The balcony plants")));
+  const trace = (await req("GET", "/api/trace", undefined, { cookie })).json;
+  assert.ok(trace.some((x) => x.action === "accept" && x.who === "you (rule for Notes app)"));
+
+  const mail = await call(t.token, "propose", { kind: "memory", text: "The plumber comes Thursday", area: "home", source: { kind: "email", label: "Re: plumbing" } });
+  assert.equal(mail.data.status, "held");
+  run("INSERT OR REPLACE INTO agent_taint(agent_id,at) VALUES(?,?)", t.agent.id, Date.now());
+  const tainted = await call(t.token, "propose", { kind: "memory", text: "The water tank is cleaned in May", area: "home" });
+  assert.equal(tainted.data.status, "held");
+  assert.deepEqual(tainted.data.reasons, ["This agent read untrusted content in the last 10 minutes"]);
+  run("DELETE FROM agent_taint WHERE agent_id=?", t.agent.id);
+
+  const off = await req("PATCH", `/api/agents/${t.agent.id}`, { auto_accept: false }, { cookie });
+  assert.equal(off.json.auto_accept, false);
+  assert.equal((await call(t.token, "propose", { kind: "memory", text: "The doorbell battery is AA", area: "home" })).data.status, "open");
+});

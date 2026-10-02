@@ -5,7 +5,7 @@ import { now, uid, norm, httpErr } from "../config.js";
 import { one, all, type Row } from "../db.js";
 import { readDoc, writeDoc, commit, withVault } from "../vault.js";
 import { indexPaths } from "../index.js";
-import { memoryFm, memoryPath, propose, forgetMemory, type ProposeResult } from "../proposals.js";
+import { memoryFm, memoryPath, propose, forgetMemory, recentConnections, type ProposeResult } from "../proposals.js";
 import { docById, memories } from "../store.js";
 import { listConnections } from "../gateway/store.js";
 import { trace } from "../trace.js";
@@ -44,6 +44,7 @@ export async function remember(link: Agent, m: Member, b: Remember): Promise<Pro
     const mem: Omit<Memory, "reads"> = {
       id: uid("m"), text, area: m.area, project: null, entities: [], scope: m.scope, source, trust: "trusted", status: "active",
       observed_at: t, valid_from: null, valid_until: b.valid_until ?? null, supersedes: old?.id ?? null, superseded_by: null, created_at: t, accepted_at: t,
+      ...(() => { const c = driver ? [] : recentConnections(m.agent.id, t); return c.length ? { connections: c } : {}; })(),
     };
     const paths = [memoryPath(mem)];
     if (old) {

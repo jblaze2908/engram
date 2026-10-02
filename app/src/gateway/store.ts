@@ -130,6 +130,7 @@ export function connectionDetail(id: string): ConnectionDetail {
     id: c.id, name: c.name, ...summary(c, tools), url: c.url, auth: c.auth, untrusted: !!c.untrusted,
     connected_at: c.connected_at, refreshed_at: c.refreshed_at, tools: tools.map((t) => tool(t, g.get(t.name) || [])),
     changes: tools.filter((t) => t.current_hash !== t.pinned_hash).map((t) => ({ tool: t.name, approved: t.pinned_text, now: t.current_text })),
+    memories: one<{ n: number }>("SELECT COUNT(*) n FROM docs d, json_each(d.data,'$.connections') c WHERE d.kind='memory' AND d.status='active' AND c.value=?", id)!.n,
   };
 }
 

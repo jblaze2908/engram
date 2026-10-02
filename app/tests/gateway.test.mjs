@@ -234,3 +234,23 @@ test("a failed upstream call traces the upstream's own error text, not the argum
     assert.ok(!row.detail.includes("secret-arg-value"), "arguments stay shape-only");
   } finally { await bad.close(); }
 });
+
+test("forget by connection: memories saved within 10 min of a call carry it; disconnecting can forget them", async () => {
+  const r = await req("POST", "/api/connections", { name: "Tracker", url: up.url, auth: "bearer", token: "pat-123" }, { cookie });
+  const id = r.json.connection.id;
+  const a = await makeAgent(cookie, "Tracker reader", [g("personal", true, "propose")]);
+  await grant(a, [`${id}/list_issues`]);
+  await raw(a.token, `${id}__list_issues`, { repo: "home" });
+  const p = await call(a.token, "propose", { kind: "memory", text: "The home repo has 3 open issues", area: "home" });
+  assert.deepEqual((await req("GET", "/api/inbox", undefined, { cookie })).json.find((x) => x.id === p.data.id).data.connections, [id]);
+  const ok = await req("POST", `/api/inbox/${p.data.id}`, { decision: "accept" }, { cookie });
+  const mid = ok.json.data.id;
+  assert.equal((await req("GET", `/api/connections/${id}`, undefined, { cookie })).json.memories, 1);
+  const quiet = await makeAgent(cookie, "Quiet one", [g("personal", true, "propose")]);
+  const plain = await call(quiet.token, "propose", { kind: "memory", text: "Unrelated: the kettle descales monthly", area: "home" });
+  assert.equal((await req("GET", "/api/inbox", undefined, { cookie })).json.find((x) => x.id === plain.data.id).data.connections, undefined, "no call, no connection");
+
+  const d = await req("DELETE", `/api/connections/${id}?memories=forget`, undefined, { cookie });
+  assert.deepEqual(d.json, { ok: true, forgotten: 1 });
+  assert.equal((await req("GET", `/api/memories/${mid}`, undefined, { cookie })).json.status, "forgotten");
+});

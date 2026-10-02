@@ -106,8 +106,14 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
 
   async function disconnect() {
     if (!window.confirm(`Disconnect ${c.name}? Engram forgets its sign-in and every agent loses its tools.`)) return;
+    // A second, separate question: forgetting is reversible, but it shouldn't ride along unnoticed.
+    const forget = c.memories > 0 && window.confirm(`Also forget the ${c.memories} ${c.memories === 1 ? "memory" : "memories"} agents saved from ${c.name}? OK forgets them; Cancel keeps them.`);
     setBusy(true);
-    try { await api.disconnect(c.id); notify(`${c.name} is disconnected.`); onChanged(); navigate("#/connections"); } catch (e) { setError(errText(e)); setBusy(false); }
+    try {
+      const r = await api.disconnect(c.id, forget);
+      notify(`${c.name} is disconnected${r.forgotten ? ` and ${r.forgotten} ${r.forgotten === 1 ? "memory" : "memories"} forgotten` : ""}.`);
+      onChanged(); navigate("#/connections");
+    } catch (e) { setError(errText(e)); setBusy(false); }
   }
 
   const change = c.changes[Math.min(at, c.changes.length - 1)];
@@ -209,6 +215,13 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
         <div className="kv">
           <span>Untrusted content <span className="block text-[12px] text-ink-3">Results are marked for agents, like email or a web page</span></span>
           <Toggle on={c.untrusted} disabled={busy} label="Untrusted content" onChange={(v) => run(() => api.updateConnection(c.id, { untrusted: v }))} />
+        </div>
+        <div className="kv">
+          <span>Memories made from it <span className="block text-[12px] text-ink-3">Saved by an agent within 10 minutes of calling {c.name}</span></span>
+          <span className="flex items-center gap-3">
+            <span>{c.memories}</span>
+            {c.memories > 0 && <Btn disabled={busy} onClick={() => window.confirm(`Forget the ${c.memories} memories made from ${c.name}?`) && run(async () => { await api.forgetConnectionMemories(c.id); load.setData({ ...c, memories: 0 }); }, "Forgotten.")}>Forget them</Btn>}
+          </span>
         </div>
         <p className="px-[18px] py-3 border-t border-line text-[12.5px] text-ink-3">Grant tools per agent on the <a className="text-data hover:underline" href="#/agents">Agents</a> screen. Write tools are never granted on their own. Grant changes reach an agent in its next session; one already running keeps the tools it started with.</p>
       </Card>

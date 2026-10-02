@@ -107,7 +107,7 @@ export const oauth = new Hono()
 
   .get("/api/oauth/requests/:id", you, (c) => c.json(O.consentView(rid(c))))
   .post("/api/oauth/requests/:id/approve", you, async (c) => {
-    const b = await body(c, z.object({ grants: z.array(grant).max(4), profile: z.enum(TARGETS as [ProfileTarget, ...ProfileTarget[]]) }));
+    const b = await body(c, z.object({ grants: z.array(grant).max(5), profile: z.enum(TARGETS as [ProfileTarget, ...ProfileTarget[]]) }));
     return c.json(O.approve(rid(c), b));
   })
   .post("/api/oauth/requests/:id/deny", you, (c) => c.json(O.deny(rid(c))))

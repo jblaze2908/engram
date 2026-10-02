@@ -176,6 +176,14 @@ function AgentDetail({ a, app, onChanged, onToken }: { a: Agent; app?: OAuthClie
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
   }
 
+  async function setAuto(on: boolean) {
+    setBusy(true); setError(null);
+    try {
+      const updated = await api.updateAgent(a.id, { auto_accept: on });
+      onChanged(updated && typeof updated === "object" && "id" in updated ? updated : { ...a, auto_accept: on });
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); } finally { setBusy(false); }
+  }
+
   async function rotate() {
     if (!window.confirm(`Make a new token for ${a.name}? The current one stops working straight away.`)) return;
     setBusy(true); setError(null);
@@ -209,6 +217,16 @@ function AgentDetail({ a, app, onChanged, onToken }: { a: Agent; app?: OAuthClie
       <div className="grid grid-cols-1 wide:grid-cols-[1fr_340px] gap-3 mt-6">
         <div className="flex flex-col gap-3">
           <GrantTable grants={grants} disabled={busy || a.revoked} onChange={save} />
+          {a.kind !== "pitcrew" && !a.link && (
+            <Card>
+              <div className="kv">
+                <span>Accept its memories without asking
+                  <span className="block text-[12px] text-ink-3">Only clean ones. Email or web sources, untrusted reads, money details and corrections to yours still wait in the inbox.</span>
+                </span>
+                <Toggle on={!!a.auto_accept} disabled={busy || a.revoked} label="Accept its memories without asking" onChange={setAuto} />
+              </div>
+            </Card>
+          )}
           <Card>
             <CardHead left="Skills it gets" right={a.skills.length || undefined} />
             {skills.data?.length === 0 && <p className="rw text-ink-2">No skills in the vault yet.</p>}

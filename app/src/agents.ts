@@ -2,10 +2,12 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { Agent, Grant, NewToken, ProfileTarget, Scope } from "../shared/types.js";
 import { now, uid, httpErr } from "./config.js";
-import { one, all, run, json, tx, type Row } from "./db.js";
+import { db, one, all, run, json, tx, type Row } from "./db.js";
 import { sha } from "./auth.js";
 import { trace, YOU } from "./trace.js";
 import { toolGrants } from "./gateway/store.js";
+
+if (!all<{ name: string }>("PRAGMA table_info(agents)").some((c) => c.name === "auto_accept")) db.exec("ALTER TABLE agents ADD COLUMN auto_accept INTEGER NOT NULL DEFAULT 0");
 
 export const GRANTABLE: Scope[] = ["personal", "finance", "health", "household"];
 const newToken = () => `eg_${randomBytes(32).toString("base64url")}`;
@@ -16,7 +18,7 @@ function toAgent(r: Row): Agent {
   return {
     id: r.id, name: r.name, kind: r.kind, profile: r.profile, hue: r.hue ?? null, skills: json(r.skills, []), tools: toolGrants(r.id),
     grants: GRANTABLE.map((s) => { const g = grants.find((x) => x.scope === s); return { scope: s, read: !!g?.read, write: g?.write || "none" }; }),
-    token_prefix: r.token_prefix, created_at: r.created_at, last_used_at: r.last_used_at ?? null, revoked: !!r.revoked, link: !!r.link,
+    token_prefix: r.token_prefix, created_at: r.created_at, last_used_at: r.last_used_at ?? null, revoked: !!r.revoked, link: !!r.link, auto_accept: !!r.auto_accept,
   };
 }
 export const listAgents = () => all("SELECT * FROM agents ORDER BY created_at").map(toAgent);
@@ -40,14 +42,18 @@ export function createAgent(a: { name: string; kind: Agent["kind"]; profile: Pro
   return { agent: getAgent(id)!, token };
 }
 
-export function updateAgent(id: string, p: { name?: string; grants?: Grant[]; skills?: string[] }) {
-  if (!getAgent(id)) throw httpErr(404, "No such agent");
+export function updateAgent(id: string, p: { name?: string; grants?: Grant[]; skills?: string[]; auto_accept?: boolean }) {
+  const a = getAgent(id);
+  if (!a) throw httpErr(404, "No such agent");
+  // Pitcrew members already have their own rule (clean turns go straight in), and the link never proposes.
+  if (p.auto_accept && (a.kind === "pitcrew" || a.link)) throw httpErr(400, "Pitcrew members follow Pitcrew's own rule");
   tx(() => {
     if (p.name !== undefined) run("UPDATE agents SET name=? WHERE id=?", p.name, id);
     if (p.skills !== undefined) run("UPDATE agents SET skills=? WHERE id=?", JSON.stringify(p.skills), id);
     if (p.grants !== undefined) setGrants(id, p.grants);
+    if (p.auto_accept !== undefined) run("UPDATE agents SET auto_accept=? WHERE id=?", p.auto_accept ? 1 : 0, id);
   });
-  trace(YOU, "agent.update", id);
+  trace(YOU, "agent.update", id, "ok", null, p.auto_accept !== undefined ? `auto_accept=${p.auto_accept}` : null);
   return getAgent(id)!;
 }
 
