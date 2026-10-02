@@ -5,7 +5,7 @@ import type { Agent } from "../../shared/types.js";
 import type { HttpError } from "../config.js";
 import { now } from "../config.js";
 import { trace, type Actor } from "../trace.js";
-import { ftsQuery } from "../search.js";
+import { ftsQuery, fuse, nearestTexts } from "../search.js";
 import { connRow, grantedTools, type ToolRow } from "./store.js";
 import { clientFor, closeClient, describe } from "./upstream.js";
 
@@ -81,17 +81,14 @@ export function registerUpstream(s: McpServer, agent: Agent, who: Actor) {
   }
 }
 
-/** search(kind "tool"): granted tools ranked by how many query words their name or description contain. */
+/** search(kind "tool"): granted tools ranked by query words in their name or description, fused with embedding similarity. */
 export function toolHits(agent: Agent, query: string, limit = 10) {
   if (!ftsQuery(query)) return [];
   const words = (query.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).slice(0, 12);
-  return grantedTools(agent.id)
-    .map((t) => {
-      const hay = `${t.name.replace(/[_.-]/g, " ")} ${t.description}`.toLowerCase();
-      return { t, score: words.filter((w) => hay.includes(w)).length };
-    })
-    .filter((x) => x.score > 0).sort((a, b) => b.score - a.score).slice(0, limit)
-    .map(({ t }) => ({
+  const tools = grantedTools(agent.id), hay = tools.map((t) => `${t.name.replace(/[_.-]/g, " ")} ${t.description}`);
+  const byWords = hay.map((h, i) => ({ i, score: words.filter((w) => h.toLowerCase().includes(w)).length })).filter((x) => x.score > 0).sort((a, b) => b.score - a.score).map((x) => x.i);
+  return fuse([byWords, nearestTexts(query, hay)]).slice(0, limit).map((i) => tools[i])
+    .map((t) => ({
       kind: "tool" as const, id: `${t.conn_id}__${t.name}`, title: t.name, snippet: trimmed(t.description), area: "", scope: "personal" as const,
       source: { kind: "other" as const, label: t.untrusted ? `${t.conn_name} (untrusted)` : t.conn_name }, valid_until: null,
     }));

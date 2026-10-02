@@ -8,6 +8,7 @@ import { VAULT, now, norm } from "./config.js";
 import { all, run, tx, setSetting } from "./db.js";
 import { parseDoc } from "./vault.js";
 import { pruneTrace } from "./trace.js";
+import { SEARCHABLE, putVec, dropVec } from "./search.js";
 
 export const CONFLICT = /\.conflict-\d+\.md$/;
 const STATUSES: MemoryStatus[] = ["active", "superseded", "held", "forgotten"];
@@ -87,14 +88,15 @@ function* walk(dir: string): Generator<string> {
 
 function put(rel: string, mtime: number) {
   const r = toRecord(rel, readFileSync(join(VAULT, rel), "utf8"), mtime);
-  for (const old of all<{ id: string }>("SELECT id FROM docs WHERE path=? OR id=?", rel, r?.id ?? "")) run("DELETE FROM docs_fts WHERE id=?", old.id);
+  for (const old of all<{ id: string }>("SELECT id FROM docs WHERE path=? OR id=?", rel, r?.id ?? "")) { run("DELETE FROM docs_fts WHERE id=?", old.id); if (old.id !== r?.id) dropVec(old.id); }
   run("DELETE FROM docs WHERE path=? OR id=?", rel, r?.id ?? "");
   if (!r) return;
   run(`INSERT INTO docs(id,kind,path,title,body,area,project,scope,status,norm,source_ref,at,valid_until,data,mtime) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     r.id, r.kind, rel, r.title, r.body, r.area, r.project, r.scope, r.status, r.norm, r.source_ref, r.at, r.valid_until, JSON.stringify(r.data), mtime);
   run("INSERT INTO docs_fts(id,title,body) VALUES(?,?,?)", r.id, r.title, r.body);
+  if ((SEARCHABLE as readonly string[]).includes(r.kind)) putVec(r.id, r.title, r.body);
 }
-const drop = (rel: string) => { for (const d of all<{ id: string }>("SELECT id FROM docs WHERE path=?", rel)) run("DELETE FROM docs_fts WHERE id=?", d.id); run("DELETE FROM docs WHERE path=?", rel); };
+const drop = (rel: string) => { for (const d of all<{ id: string }>("SELECT id FROM docs WHERE path=?", rel)) { run("DELETE FROM docs_fts WHERE id=?", d.id); dropVec(d.id); } run("DELETE FROM docs WHERE path=?", rel); };
 
 // After our own write: index those files now so the next read sees them.
 export function indexPaths(rels: string[]) {

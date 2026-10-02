@@ -2,11 +2,16 @@
 # The vault (markdown + git) and the SQLite index live under /srv/engram, mounted from the host.
 FROM node:22-bookworm-slim AS build
 # The tests commit to a temp vault, so the build stage needs git too.
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+# Search embeddings: pinned Hugging Face revision, sha256-checked here; nothing is fetched at runtime.
+COPY scripts/fetch-model.sh scripts/
+RUN sh scripts/fetch-model.sh /app/model
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+# Set explicitly so the search eval fails the build if the model is missing instead of skipping.
+ENV ENGRAM_MODEL_DIR=/app/model
 # Tests run against the build before the image exists, so a failing test rejects the deploy.
 RUN npm run build && npm test && npm prune --omit=dev
 
@@ -19,7 +24,8 @@ WORKDIR /app
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-ENV NODE_ENV=production TZ=Asia/Kolkata PORT=8340 ENGRAM_ROOT=/srv/engram NODE_OPTIONS=--disable-warning=ExperimentalWarning
+COPY --from=build /app/model ./model
+ENV ENGRAM_MODEL_DIR=/app/model NODE_ENV=production TZ=Asia/Kolkata PORT=8340 ENGRAM_ROOT=/srv/engram NODE_OPTIONS=--disable-warning=ExperimentalWarning
 EXPOSE 8340
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:8340/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/src/server.js"]
