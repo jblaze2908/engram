@@ -83,6 +83,8 @@ export interface Proposal {
   replaces?: { id: string; text: string; source: Source } | null;
   status: "open" | "accepted" | "rejected";
   created_at: number; decided_at?: number | null;
+  /** Only in the answer to deciding a share: the public link it made (slugs are never stored on the proposal). */
+  public_url?: string | null;
 }
 export type Decision = "accept" | "keep" | "reject" | "reject_and_forget_source";
 

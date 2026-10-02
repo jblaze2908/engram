@@ -198,8 +198,8 @@ export async function decide(id: string, decision: Decision, who: Actor = YOU): 
   const sh = one("SELECT * FROM proposals WHERE id=? AND kind='share'", id);
   if (sh) {
     if (sh.status !== "open") throw httpErr(409, "Already decided");
-    decideShare(sh, decision === "accept", who);
-    return toProposal(one("SELECT * FROM proposals WHERE id=?", id)!);
+    const public_url = decideShare(sh, decision === "accept", who);
+    return { ...toProposal(one("SELECT * FROM proposals WHERE id=?", id)!), public_url };
   }
   return withVault(async () => {
     const r = one("SELECT * FROM proposals WHERE id=?", id);

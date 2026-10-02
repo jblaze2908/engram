@@ -112,11 +112,13 @@ export function unshare(id: string, who: Actor) {
   if (revokeShare(id)) { writeManifest(); trace(who, "unshare", id, "ok", d.scope, short(d.title)); }
 }
 /** A share proposal decided in the inbox: accept makes the link, reject leaves the artifact private. */
-export function decideShare(r: Row, accept: boolean, who: Actor) {
+export function decideShare(r: Row, accept: boolean, who: Actor): string | null {
   const id = json<{ artifact_id?: string }>(r.data, {}).artifact_id || "";
   if (accept && !activeArtifact(id)) throw httpErr(409, "That artifact was forgotten");
   run("UPDATE proposals SET status=?, decided_at=? WHERE id=?", accept ? "accepted" : "rejected", now(), r.id);
-  if (accept) share(id, who); else trace(who, "reject", r.id, "ok", r.scope, short(r.title));
+  if (accept) return share(id, who);
+  trace(who, "reject", r.id, "ok", r.scope, short(r.title));
+  return null;
 }
 
 // ---------- what the artifacts server reads ----------

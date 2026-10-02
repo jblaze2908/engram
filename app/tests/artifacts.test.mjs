@@ -60,8 +60,10 @@ test("a public link: an agent asks through the inbox; you make and revoke it; a 
   assert.equal((await call(writer.token, "publish", { id: r.data.id, title: "Bills dashboard", filename: "bills.html", text: "<h1>Bills v2</h1>", public: true })).data.status, "share_pending");
   assert.equal((await req("GET", "/api/inbox", undefined, { cookie })).json.filter((p) => p.kind === "share").length, 1, "one request per artifact");
   assert.equal(Object.keys(manifest().shares).length, 0, "nothing public before you agree");
-  assert.equal((await req("POST", `/api/inbox/${inbox[0].id}`, { decision: "accept" }, { cookie })).status, 200);
+  const decided = await req("POST", `/api/inbox/${inbox[0].id}`, { decision: "accept" }, { cookie });
+  assert.equal(decided.status, 200);
   const a = (await req("GET", `/api/artifacts/${r.data.id}`, undefined, { cookie })).json;
+  assert.equal(decided.json.public_url, a.public_url, "accepting a share answers with its link");
   const slug = a.public_url.split("/s/")[1];
   assert.match(slug, /^[\w-]{22}$/);
   assert.deepEqual(manifest().shares, { [slug]: r.data.id });
