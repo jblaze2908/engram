@@ -14,8 +14,8 @@ export function syncBundle(a: Agent): SyncBundle {
     : [];
   const skills = rows.map((r) => {
     const s = json<{ name: string; description: string; body: string; version: number }>(r.data, { name: "", description: "", body: "", version: 1 });
-    const head = `---\nname: ${s.name}\ndescription: ${JSON.stringify(s.description || s.name)}\n---\n`;
-    return { name: s.name, version: s.version || 1, body: `${head}${s.body.trim()}\n` };
+    // Names and descriptions only: clients load a skill's body with get("skill:<name>"), nothing is written to disk.
+    return { name: s.name, description: s.description || s.name, version: s.version || 1 };
   });
   const profile = compile(a.profile, scopes);
   trace({ id: a.id, name: a.name }, "sync", a.profile, "ok", null, `${skills.length} skills, ${profile.lines} profile lines`);

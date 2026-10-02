@@ -53,7 +53,6 @@ async function body<S extends z.ZodType>(c: Context, schema: S, max = 1 << 20): 
 const mirrored = () => all("SELECT * FROM proposals WHERE status='open' AND scope!='private' ORDER BY held DESC, created_at DESC LIMIT 500").map(toProposal);
 
 export const link = new Hono<Env>()
-  .get("/api/agent/sync", bearer(false), (c) => c.json(syncBundle(c.get("agent"))))
   .use("/link/*", bearer(true))
   .get("/link/inbox", (c) => c.json({ proposals: mirrored(), at: now() } satisfies LinkInbox))
   .post("/link/inbox/:id", async (c) => {

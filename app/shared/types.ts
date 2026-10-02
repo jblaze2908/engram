@@ -67,7 +67,7 @@ export interface Agent {
 export interface NewToken { agent: Agent; token: string }
 
 /** vault_conflict: Obsidian and Engram both changed a vault file (vault sync); accept takes the Obsidian version. */
-export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change" | "vault_conflict";
+export type ProposalKind = "memory" | "entity" | "artifact" | "skill" | "tool_change" | "vault_conflict" | "tool_call";
 export interface Proposal {
   id: string; kind: ProposalKind; agent: string | null; title: string; scope: Scope; area: string;
   /** The proposed record as it would be stored. */
@@ -147,4 +147,19 @@ export interface LinkMember { pitcrew_id: string; name: string; hue?: string | n
 // ---------- M5 sync ----------
 
 /** What a Mac or Pitcrew agent writes to disk: the skills granted to it and its compiled profile block. */
-export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; version: number; body: string }[]; at: number }
+/** What Pitcrew puts in a member's instructions: its compiled profile and the names of skills it may load with get(). Nothing is written to disk. */
+export interface SyncBundle { agent: string; profile: CompiledProfile; skills: { name: string; description: string; version: number }[]; at: number }
+
+// ---------- batch 2: catalog, approval gate, OAuth server ----------
+
+/** A remote MCP server you can add in one step: hand-picked, or found in the official MCP Registry. */
+export interface CatalogEntry {
+  id: string; name: string; description: string; url: string; auth: ConnectionAuth;
+  /** Offers dynamic client registration, so OAuth needs nothing pasted. */
+  dcr?: boolean | null; untrusted: boolean; docs?: string | null; tokenHelp?: string | null; icon?: string | null;
+  source: "curated" | "registry"; connected?: boolean;
+}
+/** Per upstream tool: run, hold for your approval, or refuse. Write tools default to ask. */
+export type ToolPolicy = "allow" | "ask" | "block";
+/** An OAuth client that connected itself to Engram (ChatGPT, claude.ai…); each maps to one Engram agent. */
+export interface OAuthClient { client_id: string; name: string; redirect_uris: string[]; agent: string; created_at: number; last_used_at?: number | null }

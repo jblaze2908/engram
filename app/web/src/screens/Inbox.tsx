@@ -236,7 +236,7 @@ function RecordProposal({ p, dec }: { p: Proposal; dec: Dec }) {
 }
 
 function titleKind(p: Proposal): string {
-  return { memory: "Memory", entity: "Person or thing", artifact: "File", skill: "Skill change", tool_change: "Tool description changed", vault_conflict: "Edit conflict" }[p.kind] ?? "Proposal";
+  return { memory: "Memory", entity: "Person or thing", artifact: "File", skill: "Skill change", tool_change: "Tool description changed", vault_conflict: "Edit conflict", tool_call: "Tool call waiting for approval" }[p.kind] ?? "Proposal";
 }
 
 /** Phone: one proposal at a time, decisions at thumb height. */
