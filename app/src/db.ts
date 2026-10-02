@@ -40,6 +40,8 @@ CREATE INDEX IF NOT EXISTS docs_kind ON docs(kind, area, status, at);
 CREATE INDEX IF NOT EXISTS docs_norm ON docs(norm);
 CREATE INDEX IF NOT EXISTS docs_ref ON docs(source_ref);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2');
+-- Embeddings of searchable docs (Float32 blobs). Kept across boots: hash covers model + text, so only changed docs re-embed.
+CREATE TABLE IF NOT EXISTS vecs (id TEXT PRIMARY KEY, hash TEXT NOT NULL, v BLOB NOT NULL);
 `);
 
 export type Row = Record<string, any>;
