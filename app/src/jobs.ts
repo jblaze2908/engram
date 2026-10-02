@@ -6,6 +6,7 @@ import { ROOT, now } from "./config.js";
 import { getSetting, setSetting } from "./db.js";
 import { digestDue, loadDigests } from "./digest.js";
 import { notifyDigest, runningOutCheck, sweepProposals } from "./notify.js";
+import { briefCheck } from "./brief.js";
 
 // deploy/backup.sh writes the epoch ms of its last good run here; Status reads the cached value.
 const MARKER = join(ROOT, "backups", "last-backup");
@@ -20,6 +21,7 @@ export async function tick(t = now()) {
   const d = await digestDue(t);
   if (d) await notifyDigest(d);
   if (new Date(t + 330 * 60000).getUTCHours() >= RUNOUT_HOUR_IST) await runningOutCheck(t);
+  await briefCheck(t);
 }
 
 export function startJobs() {

@@ -36,6 +36,7 @@ const google = createServer(async (req, res) => {
   if (u.pathname === "/calendar/v3/calendars/primary/events" && req.method === "POST") { const e = JSON.parse(raw); G.events.push({ e, search: u.search }); return send(200, { id: "ev9", ...e }); }
   if (u.pathname === "/calendar/v3/calendars/primary/events/ev9") { if (req.method === "DELETE") { G.deleted.push("ev9"); res.writeHead(204); return res.end(); } return send(200, { id: "ev9", summary: "Focus", extendedProperties: { private: { engram: "1" } } }); }
   if (u.pathname === "/calendar/v3/calendars/primary/events/theirs") return send(200, { id: "theirs", summary: "Team sync" });
+  if (u.pathname === "/calendar/v3/calendars/primary/events" && G.list) return send(200, { items: G.list });
   if (u.pathname === "/calendar/v3/calendars/primary/events") return send(200, { items: [{ id: "e1", summary: "Dentist", start: { dateTime: "2026-10-03T10:00:00+05:30" }, end: { dateTime: "2026-10-03T10:30:00+05:30" }, status: "confirmed" }] });
   if (u.pathname === "/drive/v3/files" && req.method === "POST") { G.folders++; assert.deepEqual(JSON.parse(raw), { name: "Engram", mimeType: "application/vnd.google-apps.folder", appProperties: { engram: "folder" } }); return send(200, { id: "fold1" }); }
   if (u.pathname === "/drive/v3/files" && u.searchParams.get("q")?.startsWith("appProperties")) return send(200, { files: [] });
@@ -186,4 +187,35 @@ test("an expired access token is refreshed once; a revoked refresh token asks yo
   assert.equal(r.status, 502);
   const c = (await req("GET", "/api/connections/google", undefined, { cookie })).json;
   assert.equal(c.detail, "Needs you to sign in");
+});
+
+test("people brief: an event with someone Engram knows becomes a private artifact, once", async () => {
+  const { briefCheck } = await import("../dist/src/brief.js");
+  const { run } = await import("../dist/src/db.js");
+  const { putJson } = await import("../dist/src/gateway/secrets.js");
+  putJson("conn:google:tokens", { access_token: G.access, refresh_token: "rt-1", expires_at: Date.now() + 3600e3, scope: ALL.join(" ") });
+  run("UPDATE connections SET state='ok' WHERE id='google'");
+  const ent = await mcp(agent.token, "tools/call", { name: "propose", arguments: { kind: "entity", name: "Asha Rao", entity_kind: "person", summary: "Landlord" } });
+  const pe = JSON.parse(ent.msg.result.content[0].text);
+  const acc = await req("POST", `/api/inbox/${pe.id}`, { decision: "accept" }, { cookie });
+  const eid = acc.json.data.id;
+  const mem = await mcp(agent.token, "tools/call", { name: "propose", arguments: { kind: "memory", text: "Asha prefers rent by the 3rd", entities: [eid], area: "home" } });
+  await req("POST", `/api/inbox/${JSON.parse(mem.msg.result.content[0].text).id}`, { decision: "accept" }, { cookie });
+  const soon = new Date(Date.now() + 30 * 60000).toISOString();
+  G.list = [
+    { id: "ev-asha", summary: "Flat inspection", status: "confirmed", start: { dateTime: soon }, attendees: [{ email: "asha.rao@example.com" }, { email: "me@example.com", self: true }] },
+    { id: "ev-none", summary: "Gym", status: "confirmed", start: { dateTime: soon } },
+  ];
+  run("DELETE FROM settings WHERE key='brief_at'");
+  assert.equal(await briefCheck(), 1);
+  const arts = (await req("GET", "/api/artifacts", undefined, { cookie })).json;
+  const a = arts.find((x) => x.title.startsWith("Before Flat inspection"));
+  assert.equal(a.scope, "private", "no agent can read a brief");
+  const body = (await import("node:fs")).readFileSync(join(ROOT, "vault", `artifacts/files/${a.versions.at(-1).sha256}.md`), "utf8");
+  assert.match(body, /## Asha Rao/);
+  assert.match(body, /- Asha prefers rent by the 3rd/);
+  assert.equal(await briefCheck(), 0, "at most one Google read every 10 minutes");
+  run("DELETE FROM settings WHERE key='brief_at'");
+  assert.equal(await briefCheck(), 0, "an event is briefed once");
+  G.list = null;
 });

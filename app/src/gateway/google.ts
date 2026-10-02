@@ -139,6 +139,21 @@ const oneLine = z.string().max(1000).refine((s) => !/[\r\n]/.test(s), "no line b
 const Addr = z.string().max(320).regex(/^[^\s<>@,;"]+@[^\s<>@,;"]+\.[^\s<>@,;"]+$/, "a plain email address");
 const mime = (s: string) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, "utf8").toString("base64")}?=`);
 
+// ---------- for Engram's own jobs ----------
+
+export type Attendee = { email: string; name: string | null; self: boolean };
+export type UpcomingEvent = { id: string; summary: string; start: string; location: string | null; attendees: Attendee[] };
+/** Timed events on the primary calendar between two times (people briefs). One Google request; null if not signed in for Calendar. */
+export async function upcomingEvents(id: string, from: string, to: string): Promise<UpcomingEvent[] | null> {
+  if (!(getJson<Tokens>(sec(id, "tokens"))?.scope || "").split(" ").includes(S.calendar)) return null;
+  const q = new URLSearchParams({ timeMin: from, timeMax: to, singleEvents: "true", orderBy: "startTime", maxResults: "20" });
+  const items = (await g(id, `${API}/calendar/v3/calendars/primary/events?${q}`)).items || [];
+  return items.filter((e: any) => e.status !== "cancelled" && e.start?.dateTime).map((e: any) => ({
+    id: String(e.id), summary: String(e.summary ?? "").slice(0, 200), start: e.start.dateTime, location: e.location ?? null,
+    attendees: (e.attendees || []).map((x: any) => ({ email: String(x.email || ""), name: x.displayName ?? null, self: !!x.self })),
+  }));
+}
+
 // ---------- the server ----------
 
 /** Built per connection client (gateway/upstream.ts caches one), from the scopes this sign-in actually granted. */
