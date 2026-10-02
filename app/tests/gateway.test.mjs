@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ROOT, BASE, req, close, signIn, makeAgent, g, mcp, call } from "./_env.mjs";
 import { mockUpstream } from "./_upstream.mjs";
+import { z } from "zod";
 
 // The SSRF guard reads this per request; only literal http://127.0.0.1 is let through, for the mock servers below.
 process.env.ENGRAM_DEV_ALLOW_LOCAL = "1";
@@ -216,4 +217,20 @@ test("disconnect drops the connection, its grants and its secrets", async () => 
   try { assert.equal(d.prepare("SELECT COUNT(*) n FROM secrets WHERE name LIKE 'conn:notes-two:%'").get().n, 0); } finally { d.close(); }
   assert.equal((await req("GET", "/api/connections", undefined)).status, 401, "needs a session");
   assert.equal((await req("POST", "/api/connections", { name: "X", url: up.url, auth: "none" }, { cookie, csrf: false })).status, 403, "needs the CSRF header");
+});
+
+test("a failed upstream call traces the upstream's own error text, not the arguments", async () => {
+  const bad = await mockUpstream({ auth: "none", extra: (s) => s.registerTool("find_txns", { description: "Find transactions.", inputSchema: z.object({ q: z.string() }) },
+    () => ({ isError: true, content: [{ type: "text", text: "unknown argument 'query'; this action takes (q: str)" }] })) });
+  try {
+    const r = await req("POST", "/api/connections", { name: "Ledger", url: bad.url, auth: "none" }, { cookie });
+    assert.equal(r.status, 200, r.text);
+    await grant(reader, [`${r.json.connection.id}/find_txns`]);
+    const out = await raw(reader.token, `${r.json.connection.id}__find_txns`, { q: "secret-arg-value" });
+    assert.equal(out.isError, true);
+    const rows = (await req("GET", "/api/trace?result=error", undefined, { cookie })).json;
+    const row = rows.find((x) => x.target === `${r.json.connection.id}__find_txns`);
+    assert.match(row.detail, /unknown argument 'query'/);
+    assert.ok(!row.detail.includes("secret-arg-value"), "arguments stay shape-only");
+  } finally { await bad.close(); }
 });
