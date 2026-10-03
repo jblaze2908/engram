@@ -27,14 +27,15 @@ const L = (method, path, body) => req(method, path, body, { bearer: link.token, 
 const get = (path, headers = {}) => fetch(ART + path, { redirect: "manual", headers });
 const manifest = () => JSON.parse(readFileSync(join(ROOT, "artifacts-serve/manifest.json"), "utf8"));
 const key = () => readFileSync(join(ROOT, "artifacts-serve/view.key"));
-const view = (id) => `v=${mintToken(key(), id, Date.now() + 3600000)}`;
+const slugOf = (id) => Object.entries(manifest().links).find(([, l]) => l.id === id)?.[0];
+const view = (id) => `v=${mintToken(key(), slugOf(id) ?? id, Date.now() + 3600000)}`;
 const b64 = (s) => Buffer.from(s).toString("base64");
 
 test("publish over MCP: private by default, versions only by the agent that published, needs a propose grant", async () => {
   const r = await call(writer.token, "publish", { title: "Goa plan", filename: "goa.md", text: "# Goa\n\nFour nights, 12–16 Dec." });
   assert.equal(r.isError, false);
   assert.deepEqual([r.data.version, r.data.status, r.data.public_url], [1, "published", null]);
-  assert.match(r.data.url, /^https:\/\/artifacts\.example\.com\/a\/art_[\w-]+$/);
+  assert.match(r.data.url, /^https:\/\/artifacts\.example\.com\/[\w-]{22}$/, "one link, a secret slug, not the id");
   const v2 = await call(writer.token, "publish", { id: r.data.id, title: "Goa plan", filename: "goa.md", text: "# Goa\n\nFive nights now." });
   assert.equal(v2.data.version, 2); assert.equal(v2.data.url, r.data.url, "same link for every version");
   assert.equal((await call(writer.token, "publish", { id: r.data.id, title: "Goa plan", filename: "goa.md", text: "# Goa\n\nFive nights now." })).data.version, 2, "same bytes, same version");
@@ -51,33 +52,44 @@ test("publish over MCP: private by default, versions only by the agent that publ
   assert.equal(hit.url, r.data.url); assert.equal(hit.public_url, null);
 });
 
-test("a public link: an agent asks through the inbox; you make and revoke it; a new share is a new slug", async () => {
+test("one link: an agent asks through the inbox to open it to anyone; access flips at the same URL; reset makes a new one", async () => {
   const r = await call(writer.token, "publish", { title: "Bills dashboard", filename: "bills.html", text: "<h1>Bills</h1>", public: true });
   assert.deepEqual([r.data.status, r.data.public_url], ["share_pending", null]);
+  const slug = r.data.url.split("/").pop();
   const inbox = (await req("GET", "/api/inbox", undefined, { cookie })).json.filter((p) => p.kind === "share");
   assert.equal(inbox.length, 1);
   assert.deepEqual([inbox[0].title, inbox[0].held, inbox[0].reasons], ["Make public: Bills dashboard", true, ["Anyone with the link can open it"]]);
   assert.equal((await call(writer.token, "publish", { id: r.data.id, title: "Bills dashboard", filename: "bills.html", text: "<h1>Bills v2</h1>", public: true })).data.status, "share_pending");
   assert.equal((await req("GET", "/api/inbox", undefined, { cookie })).json.filter((p) => p.kind === "share").length, 1, "one request per artifact");
-  assert.equal(Object.keys(manifest().shares).length, 0, "nothing public before you agree");
+  assert.deepEqual(manifest().links[slug], { id: r.data.id, public: false }, "only you before you agree");
+  assert.equal((await get(`/${slug}`)).status, 302, "private: off to sign in");
   const decided = await req("POST", `/api/inbox/${inbox[0].id}`, { decision: "accept" }, { cookie });
   assert.equal(decided.status, 200);
   const a = (await req("GET", `/api/artifacts/${r.data.id}`, undefined, { cookie })).json;
-  assert.equal(decided.json.public_url, a.public_url, "accepting a share answers with its link");
-  const slug = a.public_url.split("/s/")[1];
-  assert.match(slug, /^[\w-]{22}$/);
-  assert.deepEqual(manifest().shares, { [slug]: r.data.id });
-  assert.equal((await call(writer.token, "publish", { id: r.data.id, title: "Bills dashboard", filename: "bills.html", text: "<h1>Bills v3</h1>" })).data.public_url, a.public_url);
-  const pub = await get(`/s/${slug}`);
+  assert.equal(decided.json.public_url, a.url, "accepting answers with the same link");
+  assert.deepEqual([a.url, a.public_url, a.public], [r.data.url, r.data.url, true]);
+  assert.deepEqual(manifest().links[slug], { id: r.data.id, public: true });
+  assert.equal((await call(writer.token, "publish", { id: r.data.id, title: "Bills dashboard", filename: "bills.html", text: "<h1>Bills v3</h1>" })).data.public_url, a.url);
+  const pub = await get(`/${slug}`);
   assert.equal(pub.status, 200); assert.equal(await pub.text(), "<h1>Bills v3</h1>");
   assert.equal(pub.headers.get("cache-control"), "public, max-age=60");
-  assert.equal((await get(`/s/${slug}?v=1`).then((x) => x.text())), "<h1>Bills</h1>");
+  assert.equal((await get(`/${slug}?v=1`).then((x) => x.text())), "<h1>Bills</h1>");
+  const old = await get(`/s/${slug}?v=1`);
+  assert.deepEqual([old.status, old.headers.get("location")], [301, `/${slug}?v=1`], "old public links redirect");
+
   assert.equal((await req("DELETE", `/api/artifacts/${r.data.id}/share`, undefined, { cookie })).status, 200);
-  assert.deepEqual(manifest().shares, {}); assert.equal((await get(`/s/${slug}`)).status, 404, "revoked");
-  const again = (await req("POST", `/api/artifacts/${r.data.id}/share`, undefined, { cookie })).json.public_url;
-  assert.notEqual(again, a.public_url);
-  assert.equal((await get(`/s/${slug}`)).status, 404, "the old slug never comes back");
-  assert.ok(!readFileSync(join(ROOT, "vault", `artifacts/${r.data.id}.md`), "utf8").includes(again.split("/s/")[1]), "slugs never enter the vault");
+  assert.equal((await get(`/${slug}`)).status, 302, "only you again, same link");
+  assert.equal((await req("GET", `/api/artifacts/${r.data.id}`, undefined, { cookie })).json.url, a.url);
+  assert.equal((await req("POST", `/api/artifacts/${r.data.id}/share`, undefined, { cookie })).json.public_url, a.url, "sharing again keeps the link");
+  assert.equal((await get(`/${slug}`)).status, 200);
+
+  const reset = (await req("POST", `/api/artifacts/${r.data.id}/reset-link`, undefined, { cookie })).json.url;
+  const fresh = reset.split("/").pop();
+  assert.notEqual(fresh, slug);
+  assert.equal((await get(`/${slug}`)).status, 404, "the old link never comes back");
+  assert.equal((await get(`/s/${slug}`)).status, 404);
+  assert.equal((await get(`/${fresh}`)).status, 200, "access stays as it was");
+  assert.ok(!readFileSync(join(ROOT, "vault", `artifacts/${r.data.id}.md`), "utf8").includes(fresh), "slugs never enter the vault");
   // A rejected request leaves it private.
   const r2 = await call(writer.token, "publish", { title: "Draft", filename: "draft.txt", text: "hello", public: true });
   const p2 = (await req("GET", "/api/inbox", undefined, { cookie })).json.find((p) => p.kind === "share");
@@ -87,7 +99,7 @@ test("a public link: an agent asks through the inbox; you make and revoke it; a 
 
 test("opening a private artifact: your session mints a view token; the artifacts host trades it for a cookie on that path", async () => {
   const { data } = await call(writer.token, "publish", { title: "Notes", filename: "notes.md", text: "Hello <script>alert(1)</script> **world**" });
-  const id = data.id;
+  const id = data.id, slug = data.url.split("/").pop();
   const anon = await req("GET", `/artifacts/${id}/open`);
   assert.equal(anon.status, 200); assert.match(anon.text, /http-equiv="refresh" content="0;url=\/artifacts\/[\w-]+\/open\?r=1"/);
   const r1 = await fetch(`${BASE}/artifacts/${id}/open?r=1`, { redirect: "manual" });
@@ -95,30 +107,32 @@ test("opening a private artifact: your session mints a view token; the artifacts
   const signed = await fetch(`${BASE}/artifacts/${id}/open?v=1`, { redirect: "manual", headers: { cookie } });
   assert.equal(signed.status, 302);
   const loc = new URL(signed.headers.get("location"));
-  assert.equal(loc.origin, "https://artifacts.example.com"); assert.equal(loc.pathname, `/a/${id}`); assert.equal(loc.searchParams.get("v"), "1");
+  assert.equal(loc.origin, "https://artifacts.example.com"); assert.equal(loc.pathname, `/${slug}`); assert.equal(loc.searchParams.get("v"), "1");
   const t = loc.searchParams.get("t");
-  assert.ok(checkToken(key(), t, id)); assert.equal(checkToken(key(), t, "art_other"), null, "bound to the artifact");
+  assert.ok(checkToken(key(), t, slug)); assert.equal(checkToken(key(), t, id), null, "bound to the link, not the id");
 
-  const bare = await get(`/a/${id}`);
+  const bare = await get(`/${slug}`);
   assert.equal(bare.status, 302); assert.equal(bare.headers.get("location"), `https://engram.test/artifacts/${id}/open`);
-  const trade = await get(`/a/${id}?t=${t}&v=1`);
-  assert.equal(trade.status, 302); assert.equal(trade.headers.get("location"), `/a/${id}?v=1`);
+  const legacy = await get(`/a/${id}?v=1`);
+  assert.deepEqual([legacy.status, legacy.headers.get("location")], [302, `https://engram.test/artifacts/${id}/open?v=1`], "an old private link needs your session before it shows the slug");
+  const trade = await get(`/${slug}?t=${t}&v=1`);
+  assert.equal(trade.status, 302); assert.equal(trade.headers.get("location"), `/${slug}?v=1`);
   const c = trade.headers.get("set-cookie");
-  assert.match(c, new RegExp(`^v=[^;]+; Path=/a/${id}; Max-Age=\\d+; HttpOnly; Secure; SameSite=Lax$`));
-  const page = await get(`/a/${id}`, { cookie: c.split(";")[0] });
+  assert.match(c, new RegExp(`^v=[^;]+; Path=/${slug}; Max-Age=\\d+; HttpOnly; Secure; SameSite=Lax$`));
+  const page = await get(`/${slug}`, { cookie: c.split(";")[0] });
   assert.equal(page.status, 200);
   assert.equal(page.headers.get("cache-control"), "private, no-store");
   const html = await page.text();
   assert.match(html, /Hello &lt;script&gt;alert\(1\)&lt;\/script&gt; <strong>world<\/strong>/, "raw HTML in markdown is shown, never run");
   assert.match(page.headers.get("content-security-policy"), /^default-src 'none'; style-src 'unsafe-inline'; img-src data:/);
-  assert.equal((await get(`/a/${id}?t=garbage`)).status, 302);
-  const expired = mintToken(key(), id, Date.now() - 1000);
-  assert.equal((await get(`/a/${id}`, { cookie: `v=${expired}` })).status, 302, "expired");
-  const tooLong = mintToken(key(), id, Date.now() + 13 * 3600000);
-  assert.equal((await get(`/a/${id}`, { cookie: `v=${tooLong}` })).status, 302, "no token outlives 12 h");
-  assert.equal((await get(`/a/${id}`, { cookie: view("art_someoneelse") })).status, 302);
-  assert.equal((await get(`/a/${id}?v=9`, { cookie: view(id) })).status, 404);
-  const dl = await get(`/a/${id}?download=1`, { cookie: view(id) });
+  assert.equal((await get(`/${slug}?t=garbage`)).status, 302);
+  const expired = mintToken(key(), slug, Date.now() - 1000);
+  assert.equal((await get(`/${slug}`, { cookie: `v=${expired}` })).status, 302, "expired");
+  const tooLong = mintToken(key(), slug, Date.now() + 13 * 3600000);
+  assert.equal((await get(`/${slug}`, { cookie: `v=${tooLong}` })).status, 302, "no token outlives 12 h");
+  assert.equal((await get(`/${slug}`, { cookie: view("art_someoneelse") })).status, 302);
+  assert.equal((await get(`/${slug}?v=9`, { cookie: view(id) })).status, 404);
+  const dl = await get(`/${slug}?download=1`, { cookie: view(id) });
   assert.match(dl.headers.get("content-disposition"), /^attachment; filename="Notes\.md"/);
 });
 
@@ -135,7 +149,7 @@ test("each file type gets its own headers; anything unknown is a download", asyn
     ["noext", "???", "application/octet-stream", /sandbox/],
   ];
   for (const [filename, content, type, csp] of cases) {
-    const id = await pub(filename, content), r = await get(`/a/${id}`, { cookie: view(id) });
+    const id = await pub(filename, content), r = await get(`/${slugOf(id)}`, { cookie: view(id) });
     assert.equal(r.status, 200, filename);
     assert.equal(r.headers.get("content-type"), type, filename);
     if (csp === null) assert.equal(r.headers.get("content-security-policy"), null, `${filename}: no sandbox, it breaks the PDF viewer`);
@@ -167,11 +181,11 @@ test("Pitcrew publishes through the link as its member, in the member's scope; f
   assert.equal(dup.json.id, r.json.id);
 
   await req("POST", `/api/artifacts/${r.json.id}/share`, undefined, { cookie });
-  const slug = (await req("GET", `/api/artifacts/${r.json.id}`, undefined, { cookie })).json.public_url.split("/s/")[1];
-  assert.equal((await get(`/s/${slug}`)).status, 200);
+  const slug = (await req("GET", `/api/artifacts/${r.json.id}`, undefined, { cookie })).json.public_url.split("/").pop();
+  assert.equal((await get(`/${slug}`)).status, 200);
   assert.equal((await req("POST", `/api/artifacts/${r.json.id}/forget`, undefined, { cookie })).status, 200);
   assert.equal(manifest().artifacts[r.json.id], undefined);
-  assert.equal((await get(`/s/${slug}`)).status, 404, "a forgotten file is never served, public or not");
+  assert.equal((await get(`/${slug}`)).status, 404, "a forgotten file is never served, public or not");
   assert.equal((await get(`/a/${r.json.id}`, { cookie: view(r.json.id) })).status, 404);
   assert.equal((await req("GET", `/artifacts/${r.json.id}/open`, undefined, { cookie })).status, 404);
 });
@@ -183,7 +197,7 @@ test("upload from the web app; the manifest holds only what the server needs", a
   assert.deepEqual([a.scope, a.source.kind, a.source.label], ["private", "you", "Uploaded in Engram"]);
   assert.equal((await req("POST", "/api/artifacts", { title: "x", filename: "x.txt", content_base64: b64("x") })).status, 401, "needs a session");
   const m = manifest();
-  assert.deepEqual(Object.keys(m).sort(), ["artifacts", "shares"]);
+  assert.deepEqual(Object.keys(m).sort(), ["artifacts", "links"]);
   for (const x of Object.values(m.artifacts)) {
     assert.deepEqual(Object.keys(x).sort(), ["title", "versions"]);
     for (const v of x.versions) assert.deepEqual(Object.keys(v).sort(), ["ext", "mime", "sha256", "v"]);

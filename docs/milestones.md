@@ -147,15 +147,21 @@ Receipts and statements from before are simply private artifacts now.
   → `{ id, version, url, public_url, status }`. Needs a propose grant for the scope; `id` makes a new version and only
   the publishing agent may use it. Pitcrew: `POST /link/artifacts` (same shape, member scope and area). You: the
   Artifacts screen's "Publish a file" (`POST /api/artifacts`).
-- **Public links:** SQLite only (`artifact_shares`; never the vault, which mirrors to GitHub). An agent's `public: true`
-  becomes a held `share` inbox item (also a Pitcrew pit stop); you make or revoke a link on the Artifacts screen. A
-  revoked slug never comes back; sharing again makes a new 128-bit slug. Forgetting an artifact revokes its link.
+- **One link per artifact** (2026-10-03): `https://<artifacts host>/<slug>`, a 128-bit slug made at publish and kept in
+  SQLite only (`artifact_links`; never the vault, which mirrors to GitHub). Access is a setting on that link: only you
+  (default) or anyone with the link. Sharing or unsharing never changes the URL. An agent's `public: true` becomes a held
+  `share` inbox item (also a Pitcrew pit stop), and accepting it flips access. **Reset link** makes a new slug and the
+  old one never works again; access stays as it was. Forgetting an artifact drops its link. `public_url` equals `url`
+  while it is shared, else null. Live public links from before (`artifact_shares`) kept their slugs; revoked ones
+  stayed dead.
 - **Serving:** its own container, `engram-artifacts` (`dist/src/artifacts/server.js`, `172.17.0.1:8345`), read-only
   mounts of `vault/artifacts` and `artifacts-serve` (manifest + view key, both written by engram-app). No DB, no master
   key, no env secrets.
-  - `/a/<id>`: private. Without a cookie it sends you to `https://engram…/artifacts/<id>/open`, which needs your
-    session and comes back with a 12 h view token, swapped for a host-only cookie scoped to `/a/<id>`.
-  - `/s/<slug>`: public. `?v=n` any version, `?download=1` a download.
+  - `/<slug>`: shared, it serves. Otherwise, without a cookie it sends you to `https://engram…/artifacts/<id>/open`,
+    which needs your session and returns with a 12 h view token bound to the slug (so a reset ends old views),
+    swapped for a host-only cookie scoped to `/<slug>`. `?v=n` any version, `?download=1` a download.
+  - Old links: `/s/<slug>` redirects (301) to `/<slug>` while that slug is still the link; `/a/<id>` goes to Engram's
+    `/open`, so knowing an id never reveals a slug without your session.
   - HTML runs in a sandbox with an opaque origin and no network (`connect-src 'none'`, images only `data:`/`blob:`,
     scripts and styles inline or from cdnjs, jsDelivr, unpkg, Google Fonts), so a private page can't phone home.
     Markdown is rendered server-side with raw HTML escaped. PDF inline (a sandbox CSP breaks Chrome's viewer), images
@@ -165,8 +171,8 @@ Receipts and statements from before are simply private artifacts now.
 
 Live at https://artifacts.example.com: DNS added by Jai, Traefik route applied (backup
 `dynamic_config.yml.bak-before-artifacts-20261002T165433Z`), Let's Encrypt cert issued on first request. Checked:
-MCP `publish` returned `/a/<id>`; without a session it redirects to engram's `/open`, which sends you to sign-in;
-an unknown `/s/<slug>` is 404. How it was set up, for a rebuild:
+MCP `publish` returned the link; without a session it redirects to engram's `/open`, which sends you to sign-in;
+an unknown slug is 404. How it was set up, for a rebuild:
 
 1. Cloudflare DNS: `A artifacts.example.com → 203.0.113.10` (the address engram, pitcrew and ntfy resolve to); match their proxy setting.
 2. Traefik, `/opt/sso-proxy/config/traefik/dynamic_config.yml` (back it up first, as for the other hosts):

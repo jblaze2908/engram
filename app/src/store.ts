@@ -1,7 +1,7 @@
 // Typed reads over the index. Everything here is SQLite; nothing touches the vault or git.
 import type { Memory, Entity, Artifact, Episode, Skill, ProfileFile, Area, Project, Scope } from "../shared/types.js";
 import { one, all, json, marks, type Row } from "./db.js";
-import { privateUrl, publicUrlOf, liveShares } from "./artifacts/shares.js";
+import { allLinks, linkOf, linkUrl } from "./artifacts/shares.js";
 
 export type DocKind = "memory" | "entity" | "artifact" | "episode" | "skill" | "profile" | "area" | "project";
 export type DocRow = { id: string; kind: DocKind; path: string; title: string; area: string; scope: Scope; status: string; data: string; at: number };
@@ -44,11 +44,13 @@ export function listEntities(f: { kind?: string; area?: string; scopes?: Scope[]
   return entities(all(`SELECT id, data FROM docs WHERE ${where.join(" AND ")} ORDER BY title LIMIT 500`, ...args));
 }
 
+// One link: url always, public_url the same URL when anyone may open it (Pitcrew reads public_url).
+const urls = (l: { slug: string; public: number }) => ({ url: linkUrl(l.slug), public_url: l.public ? linkUrl(l.slug) : null, public: !!l.public });
 export function artifacts(rows: Row[]): Artifact[] {
-  const mems = new Map<string, string[]>(), shares = new Map(rows.length ? liveShares().map((s) => [s.artifact_id, s.slug]) : []);
+  const mems = new Map<string, string[]>(), links = new Map(rows.length ? allLinks().map((l) => [l.artifact_id, l]) : []);
   if (rows.length) for (const m of all<{ id: string; ref: string }>(`SELECT id, source_ref ref FROM docs WHERE kind='memory' AND source_ref IN (${marks(rows.length)})`, ...rows.map((r) => r.id)))
     mems.set(m.ref, [...(mems.get(m.ref) || []), m.id]);
-  return rows.map((r) => { const a = json<Artifact & { ext?: string }>(r.data, {}); delete a.ext; return { ...a, ...(r.path ? { path: r.path } : {}), memories: mems.get(r.id) || [], url: privateUrl(a.id), public_url: shares.has(a.id) ? publicUrlOf(shares.get(a.id)!) : null }; });
+  return rows.map((r) => { const a = json<Artifact & { ext?: string }>(r.data, {}); delete a.ext; return { ...a, ...(r.path ? { path: r.path } : {}), memories: mems.get(r.id) || [], ...urls(links.get(a.id) ?? linkOf(a.id)) }; });
 }
 export function listArtifacts(f: { kind?: string; area?: string; scopes?: Scope[] } = {}) {
   const where = ["kind='artifact'", "status='active'"], args: string[] = [];

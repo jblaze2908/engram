@@ -11,7 +11,7 @@ import { trace, YOU } from "./trace.js";
 import { decide, memoryFm, memoryPath, toProposal } from "./proposals.js";
 import { docById, memoryById } from "./store.js";
 import { versionsOf } from "./artifacts/shared.js";
-import { revokeShare } from "./artifacts/shares.js";
+import { dropLink } from "./artifacts/shares.js";
 import { writeManifest } from "./artifacts/app.js";
 
 const short = (s: string) => s.replace(/\s+/g, " ").slice(0, 60);
@@ -82,8 +82,8 @@ export function forgetArtifact(id: string) {
     await commit(paths, `forget: ${short(String(doc.fm.title || id))} and ${n} ${n === 1 ? "memory" : "memories"}`);
     indexPaths(paths);
     trace(YOU, "forget", id, "ok", d.scope, `file and ${n} memories`);
-    // Never served again: its public link goes and the manifest drops it.
-    revokeShare(id);
+    // Never served again: its link goes for good and the manifest drops it.
+    dropLink(id);
     writeManifest();
     return { id, memories: n };
   });

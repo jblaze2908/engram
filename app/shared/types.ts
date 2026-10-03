@@ -47,7 +47,8 @@ export interface ArtifactVersion { v: number; sha256: string; ext: string; mime:
 export interface Artifact {
   id: string; title: string; kind: ArtifactKind | string; area: string; project?: string | null; scope: Scope; source: Source; description?: string;
   versions: ArtifactVersion[]; version: number; mime?: string | null; size?: number | null; sha256?: string | null; kept: boolean;
-  url: string; public_url: string | null; created_at: number; updated_at?: number; memories: string[];
+  /** The one link. public: anyone with it may open it; else only you, through Engram. public_url is url when public. */
+  url: string; public_url: string | null; public?: boolean; created_at: number; updated_at?: number; memories: string[];
 }
 /** File format, from the current version's MIME type: page = text, HTML, markdown, JSON, SVG. */
 export type ArtifactType = "page" | "pdf" | "image" | "other";

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Scope, Source } from "../shared/types.js";
 import { all, one, run, json, marks } from "./db.js";
 import { MODEL_REV, loadModel, embed, dot } from "./embed.js";
-import { privateUrl, publicUrl } from "./artifacts/shares.js";
+import { urlOf, publicUrl } from "./artifacts/shares.js";
 
 export const SEARCHABLE = ["memory", "entity", "artifact", "episode", "skill", "profile"] as const;
 export type SearchKind = (typeof SEARCHABLE)[number];
@@ -66,7 +66,7 @@ export function nearestTexts(query: string, texts: string[]) {
 const excerpt = (s: string) => { const t = s.replace(/\s+/g, " ").trim(); return t.length > 120 ? `${t.slice(0, 120)}…` : t; };
 // An artifact hit carries its links, so an agent can hand the user one without a second call (one share lookup per hit).
 const toHit = (r: any): Hit => ({ kind: r.kind, id: r.id, title: r.title, snippet: r.snip || r.title, area: r.area, scope: r.scope, source: json<{ source?: Source }>(r.data, {}).source ?? null, valid_until: r.valid_until ?? null,
-  ...(r.kind === "artifact" ? { url: privateUrl(r.id), public_url: publicUrl(r.id) } : {}) });
+  ...(r.kind === "artifact" ? { url: urlOf(r.id), public_url: publicUrl(r.id) } : {}) });
 
 /** BM25 over FTS5, fused with cosine over the caller's readable docs when the model is loaded (lexical forces BM25 alone). */
 export function search(f: { query: string; kind?: SearchKind; area?: string; project?: string; scopes?: Scope[]; limit?: number; lexical?: boolean }) {

@@ -33,9 +33,10 @@ export function extOf(filename: string) {
 export const mimeOf = (ext: string) => MIME[ext] || "application/octet-stream";
 
 export type ManifestVersion = { v: number; sha256: string; ext: string; mime: string };
-export type Manifest = { artifacts: Record<string, { title: string; versions: ManifestVersion[] }>; shares: Record<string, string> };
+/** links: slug → the artifact it opens and whether anyone may (else only you, through Engram). */
+export type Manifest = { artifacts: Record<string, { title: string; versions: ManifestVersion[] }>; links: Record<string, { id: string; public: boolean }> };
 
-// The private view token: base64url("id.exp") + "." + HMAC-SHA256 over that part with view.key.
+// The private view token: base64url("slug.exp") + "." + HMAC-SHA256 over that part with view.key.
 const mac = (key: Buffer, part: string) => createHmac("sha256", key).update(part).digest("base64url");
 export function mintToken(key: Buffer, id: string, exp: number) {
   const part = Buffer.from(`${id}.${exp}`).toString("base64url");

@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Scope, Decision, MemoryStatus, ArtifactVersion } from "../shared/types.js";
 import { SCOPES } from "../shared/types.js";
 import { findArtifacts } from "./artifacts/list.js";
+import { urlOf } from "./artifacts/shares.js";
 import { HOST, VAULT, httpErr, type HttpError } from "./config.js";
 import * as A from "./auth.js";
 import * as G from "./agents.js";
@@ -131,6 +132,7 @@ export const api = new Hono()
   })
   .post("/api/artifacts/:id/share", you, (c) => c.json({ public_url: AR.share(id(c), YOU) }))
   .delete("/api/artifacts/:id/share", you, (c) => { AR.unshare(id(c), YOU); return c.json({ ok: true }); })
+  .post("/api/artifacts/:id/reset-link", you, (c) => c.json({ url: AR.resetLink(id(c), YOU) }))
   // Opening a private artifact: your session mints a 12 h view token for the artifacts host. The session cookie is
   // SameSite=Strict, so a link followed from another site arrives without it; one same-site reload brings it.
   .get("/artifacts/:id/open", (c) => {
@@ -141,7 +143,7 @@ export const api = new Hono()
     }
     const d = S.docById(aid);
     if (!d || d.kind !== "artifact" || d.status !== "active") throw httpErr(404, "No such artifact");
-    return c.redirect(`https://${ARTIFACTS_HOST}/a/${encodeURIComponent(aid)}?t=${AR.viewToken(aid)}${v ? `&v=${v}` : ""}`, 302);
+    return c.redirect(`${urlOf(aid)}?t=${AR.viewToken(aid)}${v ? `&v=${v}` : ""}`, 302);
   })
 
   .get("/api/journal", you, (c) => c.json(V.journalView(q(c, "day", DAYRE))))

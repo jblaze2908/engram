@@ -86,6 +86,7 @@ export const api = {
   artifactOpenUrl: (id: string, v?: number) => `/artifacts/${enc(id)}/open${v ? `?v=${v}` : ""}`,
   publishArtifact: (b: { title: string; filename: string; content_base64: string; id?: string; scope?: Scope; description?: string }) => request<PublishResult>("POST", "/api/artifacts", b),
   shareArtifact: (id: string) => request<{ public_url: string }>("POST", `/api/artifacts/${enc(id)}/share`),
+  resetArtifactLink: (id: string) => request<{ url: string }>("POST", `/api/artifacts/${enc(id)}/reset-link`),
   unshareArtifact: (id: string) => request<{ ok: true }>("DELETE", `/api/artifacts/${enc(id)}/share`),
 
   journal: (day?: string) => request<JournalView>("GET", `/api/journal${qs({ day })}`),

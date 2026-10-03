@@ -7,7 +7,7 @@ import { artifacts } from "../store.js";
 import { ftsQuery } from "../search.js";
 
 const CUR_MIME = "COALESCE(json_extract(data,'$.versions[#-1].mime'), json_extract(data,'$.mime'), '')";
-export const PUBLIC = "id IN (SELECT artifact_id FROM artifact_shares WHERE revoked_at IS NULL)";
+export const PUBLIC = "id IN (SELECT artifact_id FROM artifact_links WHERE public=1)";
 export const WAITING = `(id IN (SELECT source_ref FROM proposals WHERE kind='share' AND status='open') AND NOT ${PUBLIC})`;
 export const TYPES: Record<ArtifactType, string> = {
   page: `(${CUR_MIME} LIKE 'text/%' OR ${CUR_MIME} IN ('application/json','image/svg+xml'))`, pdf: `${CUR_MIME}='application/pdf'`,

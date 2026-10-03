@@ -13,7 +13,7 @@ import { canPropose } from "../agents.js";
 import { trace, type Actor } from "../trace.js";
 import { proposed } from "../notify.js";
 import { MAX_FILE, VIEW_MS, extOf, mimeOf, mintToken, versionsOf, type Manifest, type Version } from "./shared.js";
-import { privateUrl, publicUrl, liveShares, newShare, revokeShare } from "./shares.js";
+import { urlOf, publicUrl, linkOf, allLinks, setPublic, resetLink as newLink } from "./shares.js";
 
 export const SERVE = join(ROOT, "artifacts-serve");
 const SCOPE_AREA: Partial<Record<Scope, string>> = { finance: "money", health: "health" };
@@ -53,7 +53,7 @@ async function write(p: Publisher, i: PublishInput): Promise<PublishResult> {
     const last = versions.at(-1);
     // A republish of the same bytes is the same version: nothing to commit.
     if (last && last.sha256 === sha && (!i.description || i.description === doc.body) && title === doc.fm.title)
-      return { id: d.id, version: last.v, url: privateUrl(d.id), public_url: publicUrl(d.id), status: "published" };
+      return { id: d.id, version: last.v, url: urlOf(d.id), public_url: publicUrl(d.id), status: "published" };
     const { sha256: _s, ext: _e, mime: _m, size: _z, ...rest } = doc.fm;
     fm = { ...rest, title, updated_at: t };
     body = i.description ?? doc.body;
@@ -76,7 +76,7 @@ async function write(p: Publisher, i: PublishInput): Promise<PublishResult> {
   indexPaths([rel]);
   trace(p.actor, "publish", fm.id, "ok", fm.scope, `v${v} ${short(i.filename)}`);
   writeManifest();
-  return { id: fm.id, version: v, url: privateUrl(fm.id), public_url: publicUrl(fm.id), status: "published" };
+  return { id: fm.id, version: v, url: urlOf(fm.id), public_url: publicUrl(fm.id), status: "published" };
 }
 
 // ---------- public links ----------
@@ -89,27 +89,34 @@ async function requestShare(id: string, p: Publisher): Promise<boolean> {
   if (one("SELECT 1 FROM proposals WHERE status='open' AND kind='share' AND json_extract(data,'$.artifact_id')=?", id)) return true;
   const pid = uid("p"), reasons = ["Anyone with the link can open it"];
   run("INSERT INTO proposals(id,kind,agent,title,scope,area,data,norm,source,source_ref,reasons,held,replaces,status,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-    pid, "share", p.agent.name, `Make public: ${d.title}`.slice(0, 200), d.scope, d.area, JSON.stringify({ artifact_id: id, title: d.title, url: privateUrl(id) }), null,
+    pid, "share", p.agent.name, `Make public: ${d.title}`.slice(0, 200), d.scope, d.area, JSON.stringify({ artifact_id: id, title: d.title, url: urlOf(id) }), null,
     JSON.stringify(p.source), id, JSON.stringify(reasons), 1, JSON.stringify(null), "open", now());
   trace(p.actor, "share.request", id, "held", d.scope, short(d.title));
   proposed();
   return true;
 }
 
+/** Anyone with the link can open it. The link itself doesn't change. */
 export function share(id: string, who: Actor) {
   const d = activeArtifact(id);
   if (!d) throw httpErr(404, "No such artifact");
-  const existing = publicUrl(id);
-  if (existing) return existing;
-  newShare(id);
-  writeManifest();
-  trace(who, "share", id, "ok", d.scope, short(d.title));
-  return publicUrl(id)!;
+  if (setPublic(id, true)) { writeManifest(); trace(who, "share", id, "ok", d.scope, short(d.title)); }
+  return urlOf(id);
 }
+/** Only you again, at the same link. */
 export function unshare(id: string, who: Actor) {
   const d = docById(id);
   if (!d || d.kind !== "artifact") throw httpErr(404, "No such artifact");
-  if (revokeShare(id)) { writeManifest(); trace(who, "unshare", id, "ok", d.scope, short(d.title)); }
+  if (setPublic(id, false)) { writeManifest(); trace(who, "unshare", id, "ok", d.scope, short(d.title)); }
+}
+/** A new link, for when the old one went somewhere it shouldn't; the old one stops working at once. Access stays as it was. */
+export function resetLink(id: string, who: Actor) {
+  const d = activeArtifact(id);
+  if (!d) throw httpErr(404, "No such artifact");
+  const url = newLink(id);
+  writeManifest();
+  trace(who, "link.reset", id, "ok", d.scope, short(d.title));
+  return url;
 }
 /** A share proposal decided in the inbox: accept makes the link, reject leaves the artifact private. */
 export function decideShare(r: Row, accept: boolean, who: Actor): string | null {
@@ -130,17 +137,21 @@ export function viewKey() {
   if (!existsSync(p)) writeFileSync(p, randomBytes(32), { mode: 0o600 });
   return (key = readFileSync(p));
 }
-export const viewToken = (id: string) => mintToken(viewKey(), id, now() + VIEW_MS);
+/** Bound to the link's slug, so a reset link also ends every view opened with the old one. */
+export const viewToken = (id: string) => mintToken(viewKey(), linkOf(id).slug, now() + VIEW_MS);
 
 // Per artifact or share change: one read of the active artifacts' index rows and one atomic file write.
 export function writeManifest() {
   viewKey();
-  const m: Manifest = { artifacts: {}, shares: {} };
+  const m: Manifest = { artifacts: {}, links: {} };
+  const links = new Map(allLinks().map((l) => [l.artifact_id, l]));
   for (const r of all<{ id: string; title: string; data: string }>("SELECT id, title, data FROM docs WHERE kind='artifact' AND status='active'")) {
     const vs = json<{ versions?: Version[] }>(r.data, {}).versions || [];
-    if (vs.length) m.artifacts[r.id] = { title: r.title, versions: vs.map(({ v, sha256, ext, mime }) => ({ v, sha256, ext, mime })) };
+    if (!vs.length) continue;
+    m.artifacts[r.id] = { title: r.title, versions: vs.map(({ v, sha256, ext, mime }) => ({ v, sha256, ext, mime })) };
+    const l = links.get(r.id) ?? linkOf(r.id);
+    m.links[l.slug] = { id: r.id, public: !!l.public };
   }
-  for (const s of liveShares()) if (m.artifacts[s.artifact_id]) m.shares[s.slug] = s.artifact_id;
   const p = join(SERVE, "manifest.json");
   writeFileSync(`${p}.tmp`, JSON.stringify(m), { mode: 0o600 });
   renameSync(`${p}.tmp`, p);

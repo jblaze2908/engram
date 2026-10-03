@@ -120,7 +120,7 @@ test("import artifacts: kept copy, deduped by content", async () => {
   assert.equal(a.kept, true);
   assert.equal(a.area, "money");
   assert.equal(a.source.label, "pitcrew:Bills");
-  assert.match(a.url, /^https:\/\/artifacts\.example\.com\/a\/art_/);
+  assert.match(a.url, /^https:\/\/artifacts\.example\.com\/[\w-]{22}$/);
   const file = await req("GET", `/api/artifacts/${a.id}/file`, undefined, { cookie });
   assert.equal(file.text, "%PDF-1.4 receipt");
   const dup = await L("POST", "/link/import/artifacts", { pitcrew_id: "bills", title: "Same bill", kind: "receipt", mime: "application/pdf", content_base64 });
@@ -257,7 +257,7 @@ test("link artifacts: what members published, with link state; other agents' fil
   const share = (await req("GET", "/api/inbox", undefined, { cookie })).json.find((x) => x.kind === "share" && x.data.artifact_id === p.json.id);
   await req("POST", `/api/inbox/${share.id}`, { decision: "accept" }, { cookie });
   const shared = (await list()).find((a) => a.id === p.json.id);
-  assert.deepEqual([shared.share_pending, /\/s\/[\w-]{22}$/.test(shared.public_url)], [false, true]);
+  assert.deepEqual([shared.share_pending, shared.public_url], [false, shared.url], "public at its one link");
   await req("POST", `/api/artifacts/${p.json.id}/forget`, {}, { cookie });
   assert.ok(!(await list()).some((a) => a.id === p.json.id), "forgotten artifacts drop out");
   assert.equal((await req("GET", "/link/artifacts", undefined, { bearer: other.token, csrf: false })).status, 403, "the link token only");

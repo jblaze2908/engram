@@ -25,7 +25,7 @@ const base64Of = (f: File) => new Promise<string>((ok, fail) => {
 });
 
 const TYPES: [ArtifactType, string][] = [["page", "Pages"], ["pdf", "PDFs"], ["image", "Images"], ["other", "Other files"]];
-const STATUS: [NonNullable<ArtifactFilter["status"]>, string][] = [["public", "Public link"], ["waiting", "Link waiting for you"], ["private", "Private only"]];
+const STATUS: [NonNullable<ArtifactFilter["status"]>, string][] = [["public", "Anyone with the link"], ["waiting", "Waiting for you to share"], ["private", "Only you"]];
 const FILTERS = ["q", "by", "status", "kind", "type", "scope", "area"] as const;
 type Filters = Partial<Record<(typeof FILTERS)[number], string>>;
 
@@ -95,7 +95,7 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
     <Split picked={!!id}
       list={
         <ListPane width={400} title="Artifacts"
-          sub={d ? `${d.counts.all} files · ${d.counts.public} with a public link${d.counts.waiting ? ` · ${d.counts.waiting} waiting for you` : ""}` : "Files you and your agents published. Private until you make a link."}
+          sub={d ? `${d.counts.all} files · ${d.counts.public} open to anyone with the link${d.counts.waiting ? ` · ${d.counts.waiting} waiting for you` : ""}` : "Files you and your agents published. Only you can open them until you share the link."}
           top={
             <>
               <div className="flex gap-2 mt-4 px-1">
@@ -125,7 +125,7 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
           {list.error && <ErrorNote error={list.error} onRetry={list.reload} />}
           {d && items.length === 0 && (
             <p className="px-3 text-[13px] text-ink-3 leading-relaxed">
-              {filtering ? "Nothing matches. Try fewer filters or other words." : "Nothing published yet. When you or an agent publishes a page, a document or a receipt, it shows up here with its own private link."}
+              {filtering ? "Nothing matches. Try fewer filters or other words." : "Nothing published yet. When you or an agent publishes a page, a document or a receipt, it shows up here with its own link."}
             </p>
           )}
           <div className={cx("flex flex-col gap-0.5 transition-opacity", list.loading && d && "opacity-60")}>
@@ -135,7 +135,7 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
                 <span className="min-w-0">
                   <span className="block truncate">{a.title}</span>
                   <span className="block text-[12.5px] text-ink-3 mt-0.5 truncate">
-                    {[a.public_url ? "Public link" : "", ARTIFACT_KIND_LABEL[a.kind as ArtifactKind]?.[0] ?? a.kind, a.source.label, shortDate(a.updated_at ?? a.created_at), a.version > 1 ? `v${a.version}` : "", a.memories.length ? `${a.memories.length} memories` : ""].filter(Boolean).join(" · ")}
+                    {[a.public_url ? "Anyone with link" : "", ARTIFACT_KIND_LABEL[a.kind as ArtifactKind]?.[0] ?? a.kind, a.source.label, shortDate(a.updated_at ?? a.created_at), a.version > 1 ? `v${a.version}` : "", a.memories.length ? `${a.memories.length} memories` : ""].filter(Boolean).join(" · ")}
                   </span>
                 </span>
               </a>
@@ -147,7 +147,7 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
       detail={
         <Main>
           {id ? <ArtifactDetail id={id} back={to({ id: null })} onForgotten={() => { list.reload(); navigate(to({ id: null })); }} /> : (
-            <Empty title="Pick a file to open it, share it or see its versions.">Every artifact is private: only you can open it, until you make a public link.</Empty>
+            <Empty title="Pick a file to open it, share it or see its versions.">Every artifact has one link. Only you can open it, until you let anyone with the link.</Empty>
           )}
         </Main>
       } />
@@ -174,18 +174,20 @@ function ArtifactDetail({ id, back, onForgotten }: { id: string; back: string; o
   async function copy(url: string, what: string) {
     try { await navigator.clipboard.writeText(url); notify(`Copied the ${what}.`); } catch { notify(url); }
   }
-  async function makePublic() {
-    if (!window.confirm("Make a public link? Anyone who has it can open this file, without signing in. You can turn it off any time.")) return;
+  async function act(fn: () => Promise<unknown>, done: string) {
     setBusy(true); setError(null);
-    try { const r = await api.shareArtifact(a.id); await copy(r.public_url, "public link"); load.reload(); }
+    try { await fn(); notify(done); load.reload(); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   }
-  async function makePrivate() {
-    setBusy(true); setError(null);
-    try { await api.unshareArtifact(a.id); notify("The public link is off. Making a new one gives a different link."); load.reload(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-    finally { setBusy(false); }
+  function setAccess(anyone: boolean) {
+    if (anyone === !!a.public_url) return;
+    if (anyone && !window.confirm("Let anyone with the link open this file, without signing in? The link stays the same, so anyone you already sent it to can open it now.")) return;
+    void act(() => anyone ? api.shareArtifact(a.id) : api.unshareArtifact(a.id), anyone ? "Anyone with the link can open it." : "Only you can open it now. The link is the same.");
+  }
+  function reset() {
+    if (!window.confirm("Make a new link? The current one stops working for everyone, straight away. Who can open it stays as it is.")) return;
+    void act(async () => { const r = await api.resetArtifactLink(a.id); await navigator.clipboard?.writeText(r.url).catch(() => {}); }, "New link made and copied. The old one no longer works.");
   }
 
   async function forget() {
@@ -203,14 +205,14 @@ function ArtifactDetail({ id, back, onForgotten }: { id: string; back: string; o
         <Breadcrumb items={[{ label: "Context", href: "#/context" }, { label: areaName(a.area), href: href(["context", "areas", a.area]) }, { label: a.title }]} />
         <span className="flex gap-2 flex-wrap">
           {a.kept && <LinkBtn kind="primary" href={api.artifactOpenUrl(a.id)} target="_blank" rel="noopener">Open</LinkBtn>}
-          <Btn onClick={() => copy(a.url, "private link")}>Copy link</Btn>
+          <Btn onClick={() => copy(a.url, "link")}>Copy link</Btn>
           {a.kept && <LinkBtn href={api.artifactFileUrl(a.id)} download>Download</LinkBtn>}
         </span>
       </div>
       <H1 className="mt-3">{a.title}</H1>
       <Lede>
         {by} published it{a.source.kind === "you" || a.source.kind === "agent" ? "" : ` ${fromLabel(a.source).toLowerCase()}`} on {shortDate(a.created_at)}{a.version > 1 ? `; this is version ${a.version}` : ""}.
-        {a.public_url ? " Anyone with the public link can open it." : " Only you can open it."}
+        {a.public_url ? " Anyone with its link can open it." : " Only you can open it."}
       </Lede>
 
       <div className="grid grid-cols-1 wide:grid-cols-[300px_1fr] gap-3 mt-7 flex-1 min-h-0">
@@ -224,21 +226,20 @@ function ArtifactDetail({ id, back, onForgotten }: { id: string; back: string; o
             </div>
           </Card>
           <Card>
-            <CardHead left="Public link" right={a.public_url ? "On" : "Off"} />
-            {a.public_url ? (
-              <>
-                <p className="rw font-mono text-[12px] text-ink-2 break-all">{a.public_url}</p>
-                <div className="rw flex gap-2 flex-wrap">
-                  <Btn onClick={() => copy(a.public_url!, "public link")}>Copy</Btn>
-                  <Btn kind="quiet" disabled={busy} onClick={makePrivate}>Turn off</Btn>
-                </div>
-              </>
-            ) : (
-              <div className="rw flex items-center justify-between gap-3 flex-wrap">
-                <span className="text-ink-2">Private. Only you can open it.</span>
-                <Btn disabled={busy || !a.kept} onClick={makePublic}>Make a public link</Btn>
-              </div>
-            )}
+            <CardHead left="Link" right={a.public_url ? "Anyone with it" : "Only you"} />
+            <p className="rw font-mono text-[12px] text-ink-2 break-all">{a.url}</p>
+            <div className="rw flex flex-col gap-2" role="radiogroup" aria-label="Who can open it">
+              {([[false, "Only you", "Opens after you sign in to Engram"], [true, "Anyone with the link", "No sign-in; turn it off any time"]] as const).map(([anyone, label, hint]) => (
+                <label key={label} className="flex items-start gap-2.5 cursor-pointer">
+                  <input type="radio" name={`access-${a.id}`} className="accent-[var(--ink)] mt-[3px]" checked={!!a.public_url === anyone} disabled={busy || (anyone && !a.kept)} onChange={() => setAccess(anyone)} />
+                  <span><span className="block">{label}</span><span className="block text-[12px] text-ink-3">{hint}</span></span>
+                </label>
+              ))}
+            </div>
+            <div className="rw flex gap-2 flex-wrap">
+              <Btn onClick={() => copy(a.url, "link")}>Copy</Btn>
+              <Btn kind="quiet" disabled={busy} onClick={reset}>Reset link</Btn>
+            </div>
           </Card>
           <Card>
             <CardHead left="Versions" right={a.versions.length || undefined} />

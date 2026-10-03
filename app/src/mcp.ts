@@ -118,7 +118,7 @@ function server(agent: Agent) {
   s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source, and give an area.", inputSchema: proposeSchema(), outputSchema: ProposeOut }, async (a) => {
     try { return text(await propose(agent, a) as unknown as Record<string, unknown>); } catch (e) { return fail(errMsg(e)); }
   });
-  s.registerTool("publish", { description: "Publish one file (markdown, HTML, PDF, image, anything) as an artifact: a private page the user opens at url. Pass id to publish a new version at the same link. public: true asks the user to make a link anyone can open; until they agree, public_url is null.", inputSchema: Publish, outputSchema: PublishOut }, async (a) => {
+  s.registerTool("publish", { description: "Publish one file (markdown, HTML, PDF, image, anything) as an artifact with one link, url, that only the user can open at first. Pass id to publish a new version at the same link. public: true asks the user to let anyone with the link open it; until they agree, public_url is null (it is url once they do).", inputSchema: Publish, outputSchema: PublishOut }, async (a) => {
     try { return text(await publish({ agent, actor: who, source: { kind: "agent", label: agent.name, agent: agent.id, ref: null, at: now() } }, a) as unknown as Record<string, unknown>); }
     catch (e) { trace(who, "publish", a.id || "artifact", "error", null, errMsg(e)); return fail(errMsg(e)); }
   });

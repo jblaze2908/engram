@@ -1,7 +1,9 @@
 // The artifacts host (artifacts.example.com): serves published files, nothing else. Its own container sees only
 // the vault's artifacts folder and the manifest + view key engram-app writes; no DB, no master key, no secrets in env.
-//   /a/<id>   private: a view token from Engram (?t=, then a cookie for 12 h), else back to Engram to sign in
-//   /s/<slug> public: anyone with the link
+//   /<slug>   the artifact's one link: anyone when it's public; else a view token from Engram (?t=, then a cookie for
+//             12 h), else back to Engram to sign in
+//   /s/<slug> old public links: a redirect to /<slug> while that slug is still the artifact's link
+//   /a/<id>   old private links: back to Engram, which needs your session before it hands out the slug
 // Per request: one stat of the manifest (re-read only when it changed) and one file read.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { readFileSync, statSync, existsSync } from "node:fs";
@@ -34,7 +36,7 @@ table{border-collapse:collapse;display:block;overflow:auto}th,td{border:1px soli
 }
 
 export function createArtifactsServer(o: Opts) {
-  let manifest: Manifest = { artifacts: {}, shares: {} }, mtime = -1, key: Buffer | null = null;
+  let manifest: Manifest = { artifacts: {}, links: {} }, mtime = -1, key: Buffer | null = null;
   const load = () => {
     const p = join(o.serve, "manifest.json");
     try {
@@ -79,24 +81,31 @@ export function createArtifactsServer(o: Opts) {
       const url = new URL(req.url || "/", `https://${ARTIFACTS_HOST}`), head = req.method === "HEAD";
       if (req.method !== "GET" && !head) return send(res, 405, { Allow: "GET, HEAD", "Content-Type": "text/plain" }, "Method not allowed");
       if (url.pathname === "/healthz") return send(res, 200, { "Content-Type": "application/json", "Cache-Control": "no-store" }, '{"ok":true}');
-      const [, kind, ref, extra] = url.pathname.split("/");
-      if (extra !== undefined) return notFound(res);
-      if (kind === "s" && SLUG_RE.test(ref || "")) { const id = load().shares[ref]; return id ? serve(res, id, url, true, head) : notFound(res); }
-      if (kind !== "a" || !ID_RE.test(ref || "")) return notFound(res);
-      const id = ref, keep = new URLSearchParams([...url.searchParams].filter(([k]) => k === "v" || k === "download")).toString(), clean = `/a/${id}${keep ? `?${keep}` : ""}`;
-      load();
-      const t = url.searchParams.get("t");
+      const parts = url.pathname.split("/").slice(1);
+      const v = url.searchParams.get("v"), open = (id: string) => `https://${o.engramHost}/artifacts/${encodeURIComponent(id)}/open${v ? `?v=${v}` : ""}`;
+      const keep = new URLSearchParams([...url.searchParams].filter(([k]) => k === "v" || k === "download")).toString();
+      if (parts.length === 2 && parts[0] === "s" && SLUG_RE.test(parts[1])) {
+        return load().links[parts[1]] ? send(res, 301, { Location: `/${parts[1]}${keep ? `?${keep}` : ""}`, "Cache-Control": "no-store" }) : notFound(res);
+      }
+      if (parts.length === 2 && parts[0] === "a" && ID_RE.test(parts[1])) {
+        return load().artifacts[parts[1]] ? send(res, 302, { Location: open(parts[1]), "Cache-Control": "no-store" }) : notFound(res);
+      }
+      if (parts.length !== 1 || !SLUG_RE.test(parts[0])) return notFound(res);
+      const slug = parts[0], link = load().links[slug];
+      if (!link) return notFound(res);
+      const clean = `/${slug}${keep ? `?${keep}` : ""}`, t = url.searchParams.get("t");
+      // Opened from Engram while public: drop the view token from the address bar, nothing else to check.
+      if (link.public) return t !== null ? send(res, 302, { Location: clean, "Cache-Control": "no-store" }) : serve(res, link.id, url, true, head);
       if (t !== null) {
-        const exp = key && checkToken(key, t, id);
-        if (!exp) return send(res, 302, { Location: `https://${o.engramHost}/artifacts/${id}/open${url.searchParams.get("v") ? `?v=${url.searchParams.get("v")}` : ""}`, "Cache-Control": "no-store" });
-        // Host-only, this artifact's path only: one page can never present another's view.
+        const exp = key && checkToken(key, t, slug);
+        if (!exp) return send(res, 302, { Location: open(link.id), "Cache-Control": "no-store" });
+        // Host-only, this link's path only: one page can never present another's view.
         return send(res, 302, { Location: clean, "Cache-Control": "no-store",
-          "Set-Cookie": `v=${t}; Path=/a/${id}; Max-Age=${Math.floor((exp - Date.now()) / 1000)}; HttpOnly; Secure; SameSite=Lax` });
+          "Set-Cookie": `v=${t}; Path=/${slug}; Max-Age=${Math.floor((exp - Date.now()) / 1000)}; HttpOnly; Secure; SameSite=Lax` });
       }
       const cookie = (req.headers.cookie || "").split(/;\s*/).map((c) => c.split("=")).find(([k]) => k === "v")?.[1];
-      if (!key || !checkToken(key, cookie, id))
-        return send(res, 302, { Location: `https://${o.engramHost}/artifacts/${id}/open${url.searchParams.get("v") ? `?v=${url.searchParams.get("v")}` : ""}`, "Cache-Control": "no-store" });
-      return serve(res, id, url, false, head);
+      if (!key || !checkToken(key, cookie, slug)) return send(res, 302, { Location: open(link.id), "Cache-Control": "no-store" });
+      return serve(res, link.id, url, false, head);
     } catch (e) {
       console.error(new Date().toISOString(), "artifacts:", (e as Error).message);
       return send(res, 500, { "Content-Type": "text/plain" }, "Something went wrong");
