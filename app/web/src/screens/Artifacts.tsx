@@ -215,70 +215,66 @@ function ArtifactDetail({ id, back, onForgotten }: { id: string; back: string; o
         {a.public_url ? " Anyone with its link can open it." : " Only you can open it."}
       </Lede>
 
-      <div className="grid grid-cols-1 wide:grid-cols-[300px_1fr] gap-3 mt-7 flex-1 min-h-0">
-        <div className="flex flex-col gap-3">
-          <Card className="p-4 flex flex-col min-h-[200px]">
-            <div className="flex-1 rounded-[6px] bg-surface-2 grid place-items-center text-center p-6">
-              <div>
-                <p className="font-mono text-[22px] text-ink-2">{fileTag(a.mime, a.title)}</p>
-                <p className="text-[12.5px] text-ink-3 mt-2">{a.kept ? <a href={api.artifactOpenUrl(a.id)} target="_blank" rel="noopener" className="text-data hover:underline">Open it</a> : "The file is missing"}{a.size ? ` · ${bytes(a.size)}` : ""}</p>
-              </div>
-            </div>
-          </Card>
+      <div className="grid grid-cols-1 wide:grid-cols-[minmax(0,1fr)_320px] gap-3 mt-7 items-start">
+        <div className="flex flex-col gap-3 min-w-0">
           <Card>
             <CardHead left="Link" right={a.public_url ? "Anyone with it" : "Only you"} />
-            <p className="rw font-mono text-[12px] text-ink-2 break-all">{a.url}</p>
-            <div className="rw flex flex-col gap-2" role="radiogroup" aria-label="Who can open it">
-              {([[false, "Only you", "Opens after you sign in to Engram"], [true, "Anyone with the link", "No sign-in; turn it off any time"]] as const).map(([anyone, label, hint]) => (
-                <label key={label} className="flex items-start gap-2.5 cursor-pointer">
-                  <input type="radio" name={`access-${a.id}`} className="accent-[var(--ink)] mt-[3px]" checked={!!a.public_url === anyone} disabled={busy || (anyone && !a.kept)} onChange={() => setAccess(anyone)} />
-                  <span><span className="block">{label}</span><span className="block text-[12px] text-ink-3">{hint}</span></span>
+            <div className="rw">
+              <span className="flex-1 min-w-0 truncate font-mono text-[12.5px] text-ink-2" title={a.url}>{a.url}</span>
+              <Btn onClick={() => copy(a.url, "link")}>Copy</Btn>
+            </div>
+            <div className="rw !items-stretch flex-col !gap-3" role="radiogroup" aria-label="Who can open it">
+              {([[false, "Only you", "Opens after you sign in to Engram"], [true, "Anyone with the link", "No sign-in. Turn it off any time; the link stays the same"]] as const).map(([anyone, label, hint]) => (
+                <label key={label} className="flex items-start gap-3 cursor-pointer">
+                  <input type="radio" name={`access-${a.id}`} className="accent-[var(--ink)] mt-[4px] flex-none" checked={!!a.public_url === anyone} disabled={busy || (anyone && !a.kept)} onChange={() => setAccess(anyone)} />
+                  <span className="min-w-0"><span className="block">{label}</span><span className="block text-[12.5px] text-ink-3">{hint}</span></span>
                 </label>
               ))}
             </div>
-            <div className="rw flex gap-2 flex-wrap">
-              <Btn onClick={() => copy(a.url, "link")}>Copy</Btn>
+            <div className="rw justify-between">
+              <span className="text-[12.5px] text-ink-3">Sent it somewhere it shouldn't be?</span>
               <Btn kind="quiet" disabled={busy} onClick={reset}>Reset link</Btn>
             </div>
           </Card>
           <Card>
             <CardHead left="Versions" right={a.versions.length || undefined} />
             {[...a.versions].reverse().map((v) => (
-              <div key={v.v} className="rw items-center">
-                <span className="font-mono text-[12px] text-ink-3 w-8">v{v.v}</span>
-                <span className="flex-1 text-[13px]">{shortDate(v.at)} {clock(v.at)} · {v.by}{v.size ? ` · ${bytes(v.size)}` : ""}</span>
-                <a className="text-data text-[13px] hover:underline" href={api.artifactOpenUrl(a.id, v.v)} target="_blank" rel="noopener">Open</a>
+              <div key={v.v} className="rw">
+                <span className="font-mono text-[12px] text-ink-3 w-8 flex-none">v{v.v}</span>
+                <span className="flex-1 min-w-0 truncate text-[13px]">{shortDate(v.at)} {clock(v.at)} · {v.by}{v.size ? ` · ${bytes(v.size)}` : ""}</span>
+                <a className="text-data text-[13px] hover:underline flex-none" href={api.artifactOpenUrl(a.id, v.v)} target="_blank" rel="noopener">Open</a>
               </div>
             ))}
           </Card>
-        </div>
-        <div className="flex flex-col gap-3 min-h-0">
           <Card>
             <CardHead left="Memories from this file" right={a.memories.length || undefined} />
             {memories.length === 0 && <p className="rw text-ink-2">None yet. Memories an agent takes from this file link back to it.</p>}
             {memories.map((m) => (
-              <a key={m.id} href={href(["context", "memories", m.id])} className="rw items-start hover:bg-surface-2">
+              <a key={m.id} href={href(["context", "memories", m.id])} className="rw !items-start hover:bg-surface-2">
                 <Dot color={memoryDot(m, who(m.source.agent).color)} className="mt-[7px]" />
                 <div className="flex-1"><p>{m.text}</p><p className="text-[12.5px] text-ink-3 mt-0.5">{m.status === "active" ? (m.accepted_at ? `Accepted ${shortDate(m.accepted_at)}` : "Active") : m.status}</p></div>
               </a>
             ))}
             {a.memories.length > memories.length && <p className="rw text-[12.5px] text-ink-3">and {a.memories.length - memories.length} more</p>}
           </Card>
+        </div>
+        <div className="flex flex-col gap-3 min-w-0">
           <Card>
             <CardHead left="About this file" />
+            <div className="kv"><span>File</span><span>{fileTag(a.mime, a.title)}{a.size ? ` · ${bytes(a.size)}` : ""}{a.kept ? "" : " · missing"}</span></div>
             <div className="kv"><span>From</span><span>{a.source.label}{a.source.at ? ` · ${shortDate(a.source.at)} ${clock(a.source.at)}` : ""}</span></div>
             <div className="kv"><span>Saved by</span><span>{by}</span></div>
             <div className="kv"><span>Version</span><span>{a.version || "none"}{a.mime ? ` · ${a.mime}` : ""}</span></div>
-            {a.sha256 && <div className="kv"><span>Fingerprint</span><span className="font-mono text-[12px] text-ink-2">sha256 {a.sha256.slice(0, 4)}…{a.sha256.slice(-4)}</span></div>}
+            {a.sha256 && <div className="kv"><span>Fingerprint</span><span className="font-mono text-[12px] text-ink-2">{a.sha256.slice(0, 4)}…{a.sha256.slice(-4)}</span></div>}
             <div className="kv"><span>Scope</span><span>{SCOPE_LABEL[a.scope]}</span></div>
             <div className="kv"><span>Agents who can find it</span><span>{a.scope === "private" ? "None" : readers.length ? readers.join(", ") : "No agent yet"}</span></div>
           </Card>
           {error && <p role="alert" className="text-[13px] text-bad">{error}</p>}
-          <div className="wide:mt-auto flex items-center gap-2 flex-wrap">
-            <LinkBtn href={href(["trace"], { q: a.id })}>See trace</LinkBtn>
-            {a.path && <LinkBtn kind="quiet" href={obsidianUrl(a.path)}>Open in Obsidian</LinkBtn>}
-            <Btn kind="quiet" className="ml-auto" disabled={busy} onClick={forget}>Forget this file and its memories</Btn>
-          </div>
+          <Card>
+            <a className="rw border-t-0 hover:bg-surface-2" href={href(["trace"], { q: a.id })}>See its trace</a>
+            {a.path && <a className="rw hover:bg-surface-2" href={obsidianUrl(a.path)}>Open in Obsidian</a>}
+            <button type="button" className="rw w-full text-left text-bad hover:bg-surface-2 disabled:opacity-50" disabled={busy} onClick={forget}>Forget this file and its memories</button>
+          </Card>
         </div>
       </div>
     </>
