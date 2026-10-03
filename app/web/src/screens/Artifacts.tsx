@@ -25,17 +25,22 @@ const base64Of = (f: File) => new Promise<string>((ok, fail) => {
 });
 
 const TYPES: [ArtifactType, string][] = [["page", "Pages"], ["pdf", "PDFs"], ["image", "Images"], ["other", "Other files"]];
-const STATUS: [NonNullable<ArtifactFilter["status"]>, string][] = [["public", "Anyone with the link"], ["waiting", "Waiting for you to share"], ["private", "Only you"]];
+const STATUS: [NonNullable<ArtifactFilter["status"]>, string][] = [["public", "Anyone with the link"], ["private", "Only you"], ["waiting", "Waiting for you to share"]];
 const FILTERS = ["q", "by", "status", "kind", "type", "scope", "area"] as const;
 type Filters = Partial<Record<(typeof FILTERS)[number], string>>;
 
-/** A filter select sized to its content, styled like Trace's. */
+/** A filter pill that names what it filters ("Kind  Any"). The pill is drawn here and sized to its text; a transparent
+ * native select on top keeps the browser's own menu and keyboard handling. */
 function Pick({ label, value, onChange, all, options }: { label: string; value?: string; onChange: (v: string | null) => void; all: string; options: [string, string][] }) {
+  const shown = options.find(([v]) => v === value)?.[1] ?? all;
   return (
-    <label className="contents">
-      <span className="sr-only">{label}</span>
+    <label className={cx("relative inline-flex items-center gap-1.5 h-[30px] pl-3 pr-2.5 rounded-full text-[12.5px] border max-w-full focus-within:border-ink-2",
+      value ? "border-ink-3 text-ink" : "border-line text-ink-2")}>
+      <span className="text-ink-3 flex-none">{label}</span>
+      <span className="truncate">{shown}</span>
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" className="flex-none text-ink-3"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
       <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} aria-label={label}
-        className={cx("h-[30px] px-3 rounded-full text-[12.5px] bg-transparent border max-w-full", value ? "border-ink-3 text-ink" : "border-line text-ink-2")}>
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
         <option value="">{all}</option>
         {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
@@ -107,11 +112,11 @@ export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }
               </div>
               <div className="flex flex-wrap gap-1.5 mt-3 px-1" role="group" aria-label="Filters">
                 <Pick label="Published by" all="Anyone" value={f.by} onChange={(v) => set("by", v)} options={pubs.map((p) => [p.key, `${p.label} (${p.n})`])} />
-                <Pick label="Link" all="Any link" value={f.status} onChange={(v) => set("status", v)} options={STATUS} />
-                <Pick label="Kind" all="Any kind" value={f.kind} onChange={(v) => set("kind", v)} options={KINDS.map((k) => [k, ARTIFACT_KIND_LABEL[k][1]])} />
-                <Pick label="File type" all="Any type" value={f.type} onChange={(v) => set("type", v)} options={TYPES} />
-                <Pick label="Scope" all="Any scope" value={f.scope} onChange={(v) => set("scope", v)} options={SCOPES.map((s) => [s, SCOPE_LABEL[s]])} />
-                <Pick label="Area" all="Any area" value={f.area} onChange={(v) => set("area", v)} options={areas.map((a) => [a.slug, a.name])} />
+                <Pick label="Who can open" all="Any" value={f.status} onChange={(v) => set("status", v)} options={STATUS} />
+                <Pick label="Kind" all="Any" value={f.kind} onChange={(v) => set("kind", v)} options={KINDS.map((k) => [k, ARTIFACT_KIND_LABEL[k][1]])} />
+                <Pick label="File type" all="Any" value={f.type} onChange={(v) => set("type", v)} options={TYPES} />
+                <Pick label="Scope" all="Any" value={f.scope} onChange={(v) => set("scope", v)} options={SCOPES.map((s) => [s, SCOPE_LABEL[s]])} />
+                <Pick label="Area" all="Any" value={f.area} onChange={(v) => set("area", v)} options={areas.map((a) => [a.slug, a.name])} />
               </div>
               {d && filtering && (
                 <p className="mt-3 px-3 text-[12.5px] text-ink-3 flex items-center gap-2" aria-live="polite">
