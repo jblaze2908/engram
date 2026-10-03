@@ -48,7 +48,7 @@ test("forget an artifact: record and its memories forgotten, kept copy only in g
   const bytes = Buffer.from("%PDF-1.4 electricity bill");
   const a = await call(token, "propose", { kind: "artifact", title: "BESCOM bill, Sep", artifact_kind: "receipt", area: "money", scope: "finance", mime: "application/pdf", content_base64: bytes.toString("base64"), source: { kind: "file", label: "BESCOM PDF" } });
   await accept(a.data.id);
-  const [art] = (await req("GET", "/api/artifacts", undefined, { cookie })).json;
+  const [art] = (await req("GET", "/api/artifacts", undefined, { cookie })).json.artifacts;
   assert.equal(art.path, `artifacts/${art.id}.md`);
   const m = await call(token, "propose", { kind: "memory", text: "BESCOM account is 1234", area: "money", scope: "finance", source: { kind: "file", label: "BESCOM PDF", ref: art.id } });
   await accept(m.data.id);
@@ -61,7 +61,7 @@ test("forget an artifact: record and its memories forgotten, kept copy only in g
   assert.deepEqual(r.json, { id: art.id, memories: 1 });
   assert.equal(gitLog()[0], "forget: BESCOM bill, Sep and 1 memory");
   assert.equal((await memory(mem.id)).status, "forgotten");
-  assert.deepEqual((await req("GET", "/api/artifacts", undefined, { cookie })).json, []);
+  assert.deepEqual((await req("GET", "/api/artifacts", undefined, { cookie })).json.artifacts, []);
   assert.ok(!existsSync(join(ROOT, "vault", kept)), "copy left the working tree");
   assert.deepEqual(execFileSync("git", ["show", `HEAD~1:${kept}`], { cwd: join(ROOT, "vault") }), bytes, "and stays in history");
   const got = await call(token, "get", { id: art.id });

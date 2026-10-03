@@ -1,14 +1,14 @@
 import { useRef, useState } from "react";
-import type { ArtifactKind } from "../../../shared/types";
+import { SCOPES, type Artifact, type ArtifactFilter, type ArtifactKind, type ArtifactType } from "../../../shared/types";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app";
 import { obsidianUrl } from "../lib/obsidian";
-import { useAgentList, useAreaName, useWho } from "../lib/directory";
+import { useAgentList, useAreaList, useAreaName, useWho } from "../lib/directory";
 import { bytes, clock, shortDate } from "../lib/format";
 import { ARTIFACT_KIND_LABEL, fileTag, fromLabel, SCOPE_LABEL } from "../lib/labels";
-import { href, navigate } from "../lib/router";
+import { href, navigate, replace } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
-import { BackLink, Breadcrumb, Btn, Card, CardHead, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, Split } from "../components/ui";
+import { BackLink, Breadcrumb, Btn, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, SearchField, Split } from "../components/ui";
 import { memoryDot } from "./Memories";
 
 const KINDS = Object.keys(ARTIFACT_KIND_LABEL) as ArtifactKind[];
@@ -24,66 +24,129 @@ const base64Of = (f: File) => new Promise<string>((ok, fail) => {
   r.readAsDataURL(f);
 });
 
+const TYPES: [ArtifactType, string][] = [["page", "Pages"], ["pdf", "PDFs"], ["image", "Images"], ["other", "Other files"]];
+const STATUS: [NonNullable<ArtifactFilter["status"]>, string][] = [["public", "Public link"], ["waiting", "Link waiting for you"], ["private", "Private only"]];
+const FILTERS = ["q", "by", "status", "kind", "type", "scope", "area"] as const;
+type Filters = Partial<Record<(typeof FILTERS)[number], string>>;
+
+/** A filter select sized to its content, styled like Trace's. */
+function Pick({ label, value, onChange, all, options }: { label: string; value?: string; onChange: (v: string | null) => void; all: string; options: [string, string][] }) {
+  return (
+    <label className="contents">
+      <span className="sr-only">{label}</span>
+      <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} aria-label={label}
+        className={cx("h-[30px] px-3 rounded-full text-[12.5px] bg-transparent border max-w-full", value ? "border-ink-3 text-ink" : "border-line text-ink-2")}>
+        <option value="">{all}</option>
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </label>
+  );
+}
+
 export function Artifacts({ id, query }: { id?: string; query: URLSearchParams }) {
-  const k = query.get("kind") as ArtifactKind | null;
-  const kind = k && KINDS.includes(k) ? k : undefined;
-  const list = useLoad(() => api.artifacts(kind), [kind]);
+  const f: Filters = Object.fromEntries(FILTERS.map((k) => [k, query.get(k) || undefined]).filter(([, v]) => v));
+  const key = JSON.stringify(f);
+  // The first page follows the filters; "Show more" appends pages until the filters change. The old list stays up while
+  // a new one loads (useLoad keeps data), so typing never blanks or jumps it.
+  const list = useLoad(() => api.artifacts(f), [key]);
+  const [more, setMore] = useState<{ key: string; items: Artifact[]; next: string | null }>({ key: "", items: [], next: null });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const extra = more.key === key ? more : { key, items: [], next: list.data?.next ?? null };
+  const first = list.data?.artifacts ?? [], seen = new Set(first.map((a) => a.id));
+  const items = [...first, ...extra.items.filter((a) => !seen.has(a.id))];
+  const next = extra.items.length ? extra.next : list.data?.next ?? null;
+  const areas = useAreaList();
   const { notify } = useApp();
   const pick = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  async function upload(f: File | undefined) {
-    if (!f) return;
-    if (f.size > MAX_FILE) return notify("Files must be under 10 MB.");
+
+  const to = (p: { id?: string | null } & Filters = {}) => {
+    const q: Record<string, string | undefined> = { ...f };
+    for (const k of FILTERS) if (k in p) q[k] = (p as Filters)[k] || undefined;
+    return href(["context", "artifacts", p.id === undefined ? id : p.id ?? undefined], q);
+  };
+  const set = (k: (typeof FILTERS)[number], v: string | null) => navigate(to({ [k]: v ?? undefined }));
+  const typing = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  async function showMore() {
+    if (!next) return;
+    setLoadingMore(true);
+    try {
+      const r = await api.artifacts({ ...f, cursor: next });
+      setMore({ key, items: [...extra.items, ...r.artifacts], next: r.next });
+    } catch (e) { notify(e instanceof Error ? e.message : String(e)); } finally { setLoadingMore(false); }
+  }
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    if (file.size > MAX_FILE) return notify("Files must be under 10 MB.");
     setUploading(true);
     try {
-      const r = await api.publishArtifact({ title: f.name.replace(/\.[^.]+$/, "") || f.name, filename: f.name, content_base64: await base64Of(f) });
+      const r = await api.publishArtifact({ title: file.name.replace(/\.[^.]+$/, "") || file.name, filename: file.name, content_base64: await base64Of(file) });
       notify("Published. Only you can open it until you make a link.");
       list.reload(); navigate(to({ id: r.id }));
     } catch (e) { notify(e instanceof Error ? e.message : String(e)); }
     finally { setUploading(false); if (pick.current) pick.current.value = ""; }
   }
-  const to = (p: { id?: string; kind?: ArtifactKind | null }) =>
-    href(["context", "artifacts", p.id], { kind: p.kind === undefined ? kind : p.kind });
 
+  const d = list.data, filtering = FILTERS.some((k) => f[k]);
+  const pubs = d?.publishers ?? [];
   return (
     <Split picked={!!id}
       list={
-        <ListPane width={380} title="Artifacts" sub="Files you and your agents published: pages, documents, receipts. Private until you make a link."
+        <ListPane width={400} title="Artifacts"
+          sub={d ? `${d.counts.all} files · ${d.counts.public} with a public link${d.counts.waiting ? ` · ${d.counts.waiting} waiting for you` : ""}` : "Files you and your agents published. Private until you make a link."}
           top={
             <>
-            <div className="mt-4 px-1">
-              <input ref={pick} type="file" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
-              <Btn disabled={uploading} onClick={() => pick.current?.click()}>{uploading ? "Publishing…" : "Publish a file"}</Btn>
-            </div>
-            <div className="flex flex-wrap gap-1.5 mt-4 px-1" role="group" aria-label="Filter by kind">
-              <a href={to({ kind: null })} className="fl" aria-pressed={!kind}>All</a>
-              {KINDS.map((x) => <a key={x} href={to({ kind: x })} className="fl" aria-pressed={kind === x}>{ARTIFACT_KIND_LABEL[x][1]}</a>)}
-            </div>
+              <div className="flex gap-2 mt-4 px-1">
+                <SearchField className="flex-1 h-[36px]" label="Search titles and file contents" placeholder="Search titles and contents"
+                  value={f.q ?? ""} onSubmit={(q) => replace(to({ q }))}
+                  onChange={(q) => { clearTimeout(typing.current); typing.current = setTimeout(() => replace(to({ q })), 250); }} />
+                <input ref={pick} type="file" className="hidden" onChange={(e) => upload(e.target.files?.[0])} />
+                <Btn disabled={uploading} onClick={() => pick.current?.click()}>{uploading ? "Publishing…" : "Publish"}</Btn>
+              </div>
+              <div className="flex flex-wrap gap-1.5 mt-3 px-1" role="group" aria-label="Filters">
+                <Pick label="Published by" all="Anyone" value={f.by} onChange={(v) => set("by", v)} options={pubs.map((p) => [p.key, `${p.label} (${p.n})`])} />
+                <Pick label="Link" all="Any link" value={f.status} onChange={(v) => set("status", v)} options={STATUS} />
+                <Pick label="Kind" all="Any kind" value={f.kind} onChange={(v) => set("kind", v)} options={KINDS.map((k) => [k, ARTIFACT_KIND_LABEL[k][1]])} />
+                <Pick label="File type" all="Any type" value={f.type} onChange={(v) => set("type", v)} options={TYPES} />
+                <Pick label="Scope" all="Any scope" value={f.scope} onChange={(v) => set("scope", v)} options={SCOPES.map((s) => [s, SCOPE_LABEL[s]])} />
+                <Pick label="Area" all="Any area" value={f.area} onChange={(v) => set("area", v)} options={areas.map((a) => [a.slug, a.name])} />
+              </div>
+              {d && filtering && (
+                <p className="mt-3 px-3 text-[12.5px] text-ink-3 flex items-center gap-2" aria-live="polite">
+                  {d.total} {d.total === 1 ? "match" : "matches"}{list.loading ? " · searching…" : ""}
+                  <a href={href(["context", "artifacts", id])} className="ml-auto text-data hover:underline">Clear filters</a>
+                </p>
+              )}
             </>
           }>
-          {list.loading && !list.data && <Loading />}
+          {list.loading && !d && <Loading />}
           {list.error && <ErrorNote error={list.error} onRetry={list.reload} />}
-          {list.data?.length === 0 && (
+          {d && items.length === 0 && (
             <p className="px-3 text-[13px] text-ink-3 leading-relaxed">
-              {kind ? `No ${ARTIFACT_KIND_LABEL[kind][1].toLowerCase()} yet.` : "Nothing published yet. When you or an agent publishes a page, a document or a receipt, it shows up here with its own private link."}
+              {filtering ? "Nothing matches. Try fewer filters or other words." : "Nothing published yet. When you or an agent publishes a page, a document or a receipt, it shows up here with its own private link."}
             </p>
           )}
-          {list.data?.map((a) => (
-            <a key={a.id} href={to({ id: a.id })} className="it items-center py-2.5" aria-current={a.id === id ? "true" : undefined}>
-              <span className="w-[34px] h-[40px] rounded-[7px] flex-none grid place-items-center bg-surface-2 font-mono text-[9.5px] font-medium text-ink-2">{fileTag(a.mime, a.title)}</span>
-              <span className="min-w-0">
-                <span className="block truncate">{a.title}</span>
-                <span className="block text-[12.5px] text-ink-3 mt-0.5 truncate">
-                  {[a.public_url ? "Public link" : "", ARTIFACT_KIND_LABEL[a.kind as ArtifactKind]?.[0] ?? a.kind, a.source.label, shortDate(a.updated_at ?? a.created_at), a.version > 1 ? `v${a.version}` : "", a.memories.length ? `${a.memories.length} memories` : ""].filter(Boolean).join(" · ")}
+          <div className={cx("flex flex-col gap-0.5 transition-opacity", list.loading && d && "opacity-60")}>
+            {items.map((a) => (
+              <a key={a.id} href={to({ id: a.id })} className="it items-center py-2.5" aria-current={a.id === id ? "true" : undefined}>
+                <span className="w-[34px] h-[40px] rounded-[7px] flex-none grid place-items-center bg-surface-2 font-mono text-[9.5px] font-medium text-ink-2">{fileTag(a.mime ?? a.versions?.at(-1)?.mime, a.title)}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{a.title}</span>
+                  <span className="block text-[12.5px] text-ink-3 mt-0.5 truncate">
+                    {[a.public_url ? "Public link" : "", ARTIFACT_KIND_LABEL[a.kind as ArtifactKind]?.[0] ?? a.kind, a.source.label, shortDate(a.updated_at ?? a.created_at), a.version > 1 ? `v${a.version}` : "", a.memories.length ? `${a.memories.length} memories` : ""].filter(Boolean).join(" · ")}
+                  </span>
                 </span>
-              </span>
-            </a>
-          ))}
+              </a>
+            ))}
+            {next && <Btn className="mt-2 self-start ml-2" disabled={loadingMore} onClick={showMore}>{loadingMore ? "Loading…" : "Show more"}</Btn>}
+          </div>
         </ListPane>
       }
       detail={
         <Main>
-          {id ? <ArtifactDetail id={id} back={to({})} onForgotten={() => { list.reload(); navigate(to({})); }} /> : (
+          {id ? <ArtifactDetail id={id} back={to({ id: null })} onForgotten={() => { list.reload(); navigate(to({ id: null })); }} /> : (
             <Empty title="Pick a file to open it, share it or see its versions.">Every artifact is private: only you can open it, until you make a public link.</Empty>
           )}
         </Main>

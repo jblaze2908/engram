@@ -191,3 +191,35 @@ test("upload from the web app; the manifest holds only what the server needs", a
   assert.equal(key().length, 32);
   assert.ok(existsSync(join(ROOT, "artifacts-serve/view.key")));
 });
+
+test("web list: search titles and contents, filter by publisher, link, kind, type, scope and area, page by cursor", async () => {
+  const b64 = (s) => Buffer.from(s, "utf8").toString("base64");
+  const mine = await req("POST", "/api/artifacts", { title: "Zephyr lease scan", filename: "lease.pdf", content_base64: b64("%PDF zephyr"), scope: "household" }, { cookie });
+  assert.equal(mine.status, 200, mine.text);
+  await call(writer.token, "publish", { title: "Quarterly notes", filename: "notes.md", text: "The zephyrine budget line moved to Q4." });
+  for (let i = 0; i < 5; i++) await call(writer.token, "publish", { title: `Paging probe ${i}`, filename: `p${i}.txt`, text: `probe ${i}` });
+  const A = async (qs) => (await req("GET", `/api/artifacts${qs}`, undefined, { cookie })).json;
+
+  const all = await A("");
+  assert.ok(all.counts.all >= 7);
+  assert.ok(all.publishers.some((p) => p.key === "you" && p.label === "You"));
+  assert.ok(all.publishers.some((p) => p.key === writer.agent.id && p.label === "Claude Code"));
+
+  assert.deepEqual((await A("?q=zephyrine")).artifacts.map((a) => a.title), ["Quarterly notes"], "file contents are searched");
+  assert.deepEqual((await A("?q=zephyr%20lease")).artifacts.map((a) => a.title), ["Zephyr lease scan"]);
+  assert.ok((await A("?by=you")).artifacts.every((a) => a.source.kind === "you"));
+  assert.ok((await A(`?by=${writer.agent.id}&type=page`)).artifacts.every((a) => a.source.agent === writer.agent.id));
+  assert.deepEqual((await A("?scope=household")).artifacts.map((a) => a.title), ["Zephyr lease scan"]);
+  assert.deepEqual((await A("?type=pdf&scope=household")).total, 1);
+  assert.equal((await A("?status=public&q=zephyr")).total, 0);
+  assert.equal((await req("GET", "/api/artifacts?status=nope", undefined, { cookie })).status, 400);
+
+  const p1 = await A("?q=probe&limit=2");
+  assert.equal(p1.total, 5);
+  assert.equal(p1.artifacts.length, 2);
+  const p2 = await A(`?q=probe&limit=2&cursor=${encodeURIComponent(p1.next)}`);
+  const p3 = await A(`?q=probe&limit=2&cursor=${encodeURIComponent(p2.next)}`);
+  const titles = [...p1.artifacts, ...p2.artifacts, ...p3.artifacts].map((a) => a.title);
+  assert.equal(new Set(titles).size, 5, "no repeats across pages");
+  assert.equal(p3.next, null);
+});

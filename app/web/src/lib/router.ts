@@ -33,3 +33,10 @@ export function href(parts: (string | null | undefined)[], query?: Record<string
 export function navigate(to: string): void {
   if (window.location.hash !== to) window.location.hash = to;
 }
+
+/** Like navigate, without a history entry per keystroke (search boxes). */
+export function replace(to: string): void {
+  if (window.location.hash === to) return;
+  history.replaceState(null, "", to);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+}

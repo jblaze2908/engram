@@ -12,9 +12,9 @@ const RRF_K = 60, POOL = 100;
 // potion-base-8M cosine under 0.2 is mostly unrelated text (swept on tests/search-eval.json: 0.15–0.25 all beat BM25).
 export const FLOOR = 0.2;
 
-export function ftsQuery(q: string) {
+export function ftsQuery(q: string, every = false) {
   const toks = (q.match(/[\p{L}\p{N}]+/gu) || []).slice(0, 12);
-  return toks.length ? toks.map((t) => `"${t}"*`).join(" OR ") : null;
+  return toks.length ? toks.map((t) => `"${t}"*`).join(every ? " AND " : " OR ") : null;
 }
 
 /** Reciprocal rank fusion: each list adds 1 / (60 + rank) to an item's score. */

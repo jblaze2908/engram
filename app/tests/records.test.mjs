@@ -19,7 +19,7 @@ test("artifact: kept file served by sha only, never by a client path", async () 
   assert.equal(r.data.status, "open");
   assert.equal((await accept(r.data.id)).status, 200);
   assert.match(gitLog()[0], /^artifact: Airtel bill, Sep/);
-  const [a] = (await req("GET", "/api/artifacts", undefined, { cookie })).json;
+  const [a] = (await req("GET", "/api/artifacts", undefined, { cookie })).json.artifacts;
   assert.equal(a.kept, true);
   assert.equal(a.size, bytes.length);
   assert.deepEqual([a.version, a.versions.length, a.public_url], [1, 1, null]);

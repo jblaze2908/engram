@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Scope, Decision, MemoryStatus, ArtifactVersion } from "../shared/types.js";
 import { SCOPES } from "../shared/types.js";
+import { findArtifacts } from "./artifacts/list.js";
 import { HOST, VAULT, httpErr, type HttpError } from "./config.js";
 import * as A from "./auth.js";
 import * as G from "./agents.js";
@@ -95,7 +96,16 @@ export const api = new Hono()
   .post("/api/memories/:id/forget", you, async (c) => c.json(await P.forgetMemory(id(c))))
   .get("/api/memories/:id/provenance", you, (c) => c.json(V.provenance(id(c))))
 
-  .get("/api/artifacts", you, (c) => c.json(S.listArtifacts({ kind: q(c, "kind", WORD) })))
+  .get("/api/artifacts", you, (c) => {
+    const f = z.object({
+      q: z.string().max(100).optional(), by: z.string().regex(/^[\w-]{1,40}$/).optional(), status: z.enum(["public", "waiting", "private"]).optional(),
+      kind: z.string().regex(WORD).optional(), type: z.enum(["page", "pdf", "image", "other"]).optional(), scope,
+      area: z.string().regex(SLUG).optional(), cursor: z.string().regex(/^\d{1,15}:[\w-]{1,100}$/).optional(), limit: z.coerce.number().int().min(1).max(100).optional(),
+    }).partial().safeParse(c.req.query());
+    if (!f.success) throw httpErr(400, "Invalid filter");
+    const [at, cid] = f.data.cursor?.split(/:(.*)/) ?? [];
+    return c.json(findArtifacts({ ...f.data, cursor: f.data.cursor ? { at: Number(at), id: cid } : undefined }));
+  })
   .get("/api/artifacts/:id", you, (c) => { const d = S.docById(id(c)); if (!d || d.kind !== "artifact") throw httpErr(404, "No such artifact"); return c.json(S.artifacts([d])[0]); })
   .get("/api/artifacts/:id/file", you, (c) => {
     // Always a download here (pages open on the artifacts host); the path comes from the index's sha and ext, never the client.

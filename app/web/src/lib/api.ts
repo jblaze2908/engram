@@ -1,5 +1,5 @@
 import type {
-  Agent, AreaView, Artifact, ArtifactKind, CatalogEntry, CompiledProfile, ConnectionAuth, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Digest, Entity, EntityKind,
+  Agent, AreaView, Artifact, ArtifactKind, ArtifactPage, CatalogEntry, CompiledProfile, ConnectionAuth, Connection, ConnectionDetail, ConnectResult, ContextHome, Decision, Digest, Entity, EntityKind,
   EntityView, Grant, JournalView, Memory, MemoryStatus, NewConnection, NewToken, OAuthClient, OAuthConsent, ProfileFile, ProfileTarget, Proposal, Provenance,
   PublishResult, Scope, Session, Skill, Status, ToolPolicy, TraceRow,
 } from "../../../shared/types";
@@ -80,7 +80,7 @@ export const api = {
   provenance: (id: string) => request<Provenance>("GET", `/api/memories/${enc(id)}/provenance`),
   addMemory: (m: NewMemory) => request<Memory>("POST", "/api/memories", m),
 
-  artifacts: (kind?: ArtifactKind) => request<Artifact[]>("GET", `/api/artifacts${qs({ kind })}`),
+  artifacts: (f: Record<string, string | undefined>) => request<ArtifactPage>("GET", `/api/artifacts${qs(f)}`),
   artifact: (id: string) => request<Artifact>("GET", `/api/artifacts/${enc(id)}`),
   artifactFileUrl: (id: string, v?: number) => `/api/artifacts/${enc(id)}/file${v ? `?v=${v}` : ""}`,
   artifactOpenUrl: (id: string, v?: number) => `/artifacts/${enc(id)}/open${v ? `?v=${v}` : ""}`,

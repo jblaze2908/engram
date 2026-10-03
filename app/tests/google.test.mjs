@@ -208,7 +208,7 @@ test("people brief: an event with someone Engram knows becomes a private artifac
   ];
   run("DELETE FROM settings WHERE key='brief_at'");
   assert.equal(await briefCheck(), 1);
-  const arts = (await req("GET", "/api/artifacts", undefined, { cookie })).json;
+  const arts = (await req("GET", "/api/artifacts", undefined, { cookie })).json.artifacts;
   const a = arts.find((x) => x.title.startsWith("Before Flat inspection"));
   assert.equal(a.scope, "private", "no agent can read a brief");
   const body = (await import("node:fs")).readFileSync(join(ROOT, "vault", `artifacts/files/${a.versions.at(-1).sha256}.md`), "utf8");

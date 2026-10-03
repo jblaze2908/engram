@@ -49,6 +49,19 @@ export interface Artifact {
   versions: ArtifactVersion[]; version: number; mime?: string | null; size?: number | null; sha256?: string | null; kept: boolean;
   url: string; public_url: string | null; created_at: number; updated_at?: number; memories: string[];
 }
+/** File format, from the current version's MIME type: page = text, HTML, markdown, JSON, SVG. */
+export type ArtifactType = "page" | "pdf" | "image" | "other";
+/** by: who published it, an agent id, "you", or "engram" (Engram's own, like people briefs). */
+export interface ArtifactFilter {
+  q?: string; by?: string; status?: "public" | "waiting" | "private"; kind?: string; type?: ArtifactType; scope?: Scope; area?: string;
+  cursor?: { at: number; id: string }; limit?: number;
+}
+/** A page of artifacts, newest first. total matches the filters; counts and publishers cover every artifact. */
+export interface ArtifactPage {
+  artifacts: Artifact[]; next: string | null; total: number;
+  counts: { all: number; public: number; waiting: number };
+  publishers: { key: string; label: string; n: number }[];
+}
 export interface PublishResult { id: string; version: number; url: string; public_url: string | null; status: "published" | "share_pending" }
 
 /** A journal entry (the spec calls it an episode): what you or an agent did. Describes, never asserts. */

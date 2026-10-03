@@ -7,7 +7,7 @@ import type { Agent, ArtifactKind, LinkArtifactFilter, LinkArtifactPage, Memory,
 import { now, uid, norm, httpErr, VAULT } from "../config.js";
 import { one, all } from "../db.js";
 import { artifacts } from "../store.js";
-import { ftsQuery } from "../search.js";
+import { filtered, pageOf, count, WAITING } from "../artifacts/list.js";
 import { writeDoc, writeRaw, commit, withVault } from "../vault.js";
 import { indexPaths } from "../index.js";
 import { memoryFm, memoryPath } from "../proposals.js";
@@ -68,16 +68,7 @@ export function linkPublish(link: Agent, m: Member, b: { title: string; filename
   return publish({ agent: m.agent, actor: actorOf(m.agent), source }, { ...b, scope: m.scope, area: m.area });
 }
 
-// What Pitcrew members published, newest first, a page at a time; private scope never leaves Engram. Filters run here so
-// a page stays ≤ 100 rows however many files exist: one indexed query plus three counts per Library view.
-const CUR_MIME = "COALESCE(json_extract(data,'$.versions[#-1].mime'), json_extract(data,'$.mime'), '')";
-const PUBLIC = "id IN (SELECT artifact_id FROM artifact_shares WHERE revoked_at IS NULL)";
-const WAITING = `(id IN (SELECT source_ref FROM proposals WHERE kind='share' AND status='open') AND NOT ${PUBLIC})`;
-const KINDS: Record<LinkArtifactFilter["kind"] & string, string> = {
-  page: `(${CUR_MIME} LIKE 'text/%' OR ${CUR_MIME} IN ('application/json','image/svg+xml'))`, pdf: `${CUR_MIME}='application/pdf'`,
-  image: `(${CUR_MIME} LIKE 'image/%' AND ${CUR_MIME}!='image/svg+xml')`, other: "",
-};
-KINDS.other = `NOT (${KINDS.page} OR ${KINDS.pdf} OR ${KINDS.image})`;
+// What Pitcrew members published, newest first, a page at a time; private scope never leaves Engram (artifacts/list.ts).
 // Imported = moved from Pitcrew's old Library: no thread behind it.
 const IMPORTED = "json_extract(data,'$.source.ref') IS NULL";
 
@@ -87,23 +78,17 @@ export function linkArtifacts(f: LinkArtifactFilter = {}): LinkArtifactPage {
   if (!members.size) return empty;
   const ids = [...members.keys()];
   const base = [`kind='artifact'`, `status='active'`, `scope!='private'`, `json_extract(data,'$.source.agent') IN (${ids.map(() => "?").join(",")})`];
-  const n = (extra: string) => one<{ n: number }>(`SELECT COUNT(*) n FROM docs WHERE ${[...base, extra].join(" AND ")}`, ...ids)!.n;
-  const counts = { total: n(`NOT ${IMPORTED}`), waiting: n(WAITING), imported: n(IMPORTED) };
-  const where = [...base, f.imported ? IMPORTED : `NOT ${IMPORTED}`], args: (string | number)[] = [...ids];
+  const all_ = { where: base, args: ids };
+  const counts = { total: count(all_, `NOT ${IMPORTED}`), waiting: count(all_, WAITING), imported: count(all_, IMPORTED) };
+  let by: string | undefined;
   if (f.member) {
-    const agent = [...members].find(([, pid]) => pid === f.member)?.[0];
-    if (!agent) return { ...empty, counts };
-    where.push("json_extract(data,'$.source.agent')=?"); args.push(agent);
+    by = [...members].find(([, pid]) => pid === f.member)?.[0];
+    if (!by) return { ...empty, counts };
   }
-  if (f.status) where.push(f.status === "public" ? PUBLIC : f.status === "waiting" ? WAITING : `NOT ${PUBLIC} AND NOT ${WAITING}`);
-  if (f.kind) where.push(KINDS[f.kind]);
-  const match = f.q ? ftsQuery(f.q) : null;
-  if (f.q && !match) return { ...empty, counts };
-  if (match) { where.push("id IN (SELECT id FROM docs_fts WHERE docs_fts MATCH ?)"); args.push(match); }
-  if (f.cursor) { where.push("(at < ? OR (at = ? AND id < ?))"); args.push(f.cursor.at, f.cursor.at, f.cursor.id); }
-  const limit = Math.min(Math.max(f.limit ?? 40, 1), 100);
-  const rows = all<{ id: string; path: string; data: string; at: number }>(`SELECT id, path, data, at FROM docs WHERE ${where.join(" AND ")} ORDER BY at DESC, id DESC LIMIT ?`, ...args, limit + 1);
-  const page = rows.slice(0, limit), last = page.at(-1);
+  // Library "kind" is the file format (artifacts/list.ts TYPES).
+  const s = filtered({ where: [...base, f.imported ? IMPORTED : `NOT ${IMPORTED}`], args: ids }, { q: f.q, by, status: f.status, type: f.kind });
+  if (!s) return { ...empty, counts };
+  const { rows: page, next } = pageOf(s, f.cursor, f.limit ?? 40);
   const pending = new Set(all<{ ref: string }>("SELECT source_ref ref FROM proposals WHERE kind='share' AND status='open'").map((r) => r.ref));
   return {
     artifacts: artifacts(page).map((a) => {
@@ -112,7 +97,7 @@ export function linkArtifacts(f: LinkArtifactFilter = {}): LinkArtifactPage {
         mime: v?.mime ?? a.mime ?? null, size: v?.size ?? a.size ?? null, url: a.url, public_url: a.public_url, share_pending: !a.public_url && pending.has(a.id),
         ref: a.source.ref ?? null, created_at: a.created_at, updated_at: v?.at ?? a.updated_at ?? a.created_at };
     }),
-    next: rows.length > limit && last ? `${last.at}:${last.id}` : null,
+    next,
     counts,
   };
 }
