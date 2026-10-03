@@ -301,4 +301,6 @@ select {
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 12px 12px;
+  /* Size to the label shown, not the longest option (Chromium; others keep the native width). */
+  field-sizing: content;
 }
