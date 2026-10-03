@@ -2,6 +2,7 @@
 
 /* Pitcrew C1 tokens (Draft canvas kbyr_xhuW7). Dark is the default; main.tsx sets data-theme="light" from the OS. */
 :root {
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2376767f' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --ground: #0f0f12;
   --ground-deep: #0a0a0c;
   --surface: #18181d;
@@ -30,6 +31,7 @@
 }
 
 [data-theme="light"] {
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2380808b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   --ground: #f1f1f4;
   --ground-deep: #e8e8ed;
   --surface: #ffffff;
@@ -287,4 +289,16 @@
     font-weight: 500;
     color: var(--ink-3);
   }
+}
+
+/* Our own chevron, inset 12px like the text: the native arrow ignores padding and sat on the edge. Unlayered, so it
+   wins over the px-3 utilities the selects carry. Same fix as Pitcrew's selects. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
 }
