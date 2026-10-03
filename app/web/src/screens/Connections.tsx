@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import type { Connection, ConnectionAuth, ConnectResult, ToolPolicy } from "../../../shared/types";
+import type { Connection, ConnectionAuth, ConnectionDetail, ConnectResult, ToolPolicy } from "../../../shared/types";
 import { api } from "../lib/api";
 import { useApp } from "../lib/app";
 import { useWho } from "../lib/directory";
@@ -14,10 +14,16 @@ const AUTH_LABEL: Record<ConnectionAuth, string> = { oauth: "Sign in (OAuth)", b
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const POLICY: [ToolPolicy, string][] = [["allow", "run"], ["ask", "ask me"], ["block", "block"]];
 
-/** An OAuth connection that needs you: the authorization page replaces this tab, and its callback brings you back. */
+// Paste-back sign-in pages, by connection: kept outside Detail so the link survives navigating to it after Add.
+const signIns = new Map<string, string>();
+
+/** An OAuth connection that needs you: the authorization page replaces this tab, and its callback brings you back.
+ *  A paste-back one stays here instead, with a link to open and a box for the address it ends on. */
 function follow(r: ConnectResult) {
-  if (r.authorize_url && /^https?:\/\//.test(r.authorize_url)) { window.location.assign(r.authorize_url); return true; }
-  return false;
+  if (!r.authorize_url || !/^https?:\/\//.test(r.authorize_url)) return false;
+  if (r.connection.paste_back) { signIns.set(r.connection.id, r.authorize_url); return false; }
+  window.location.assign(r.authorize_url);
+  return true;
 }
 
 export function Connections({ id, query }: { id?: string; query?: URLSearchParams }) {
@@ -143,6 +149,9 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
               <input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} placeholder="Paste a new token" aria-label="New token" className="field flex-1 min-w-[220px]" />
               <button type="submit" disabled={busy || !token.trim()} className="bt bt-primary">Save and connect</button>
             </form>
+          ) : c.auth === "oauth" && c.paste_back ? (
+            <PasteBack c={c} busy={busy} onStart={() => run(() => api.connect(c.id))}
+              onDone={(r) => { signIns.delete(c.id); load.setData(r.connection); notify(`${c.name} is connected.`); onChanged(); refreshInbox(); }} />
           ) : (
             <div><Btn kind="primary" disabled={busy} onClick={() => run(() => api.connect(c.id))}>{c.auth === "oauth" ? "Connect" : "Try again"}</Btn></div>
           )}
@@ -226,6 +235,44 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
         <p className="px-[18px] py-3 border-t border-line text-[12.5px] text-ink-3">Grant tools per agent on the <a className="text-data hover:underline" href="#/agents">Agents</a> screen. Write tools are never granted on their own. Grant changes reach an agent in its next session; one already running keeps the tools it started with.</p>
       </Card>
     </>
+  );
+}
+
+/** Sign-in for a server that only returns to apps on your computer: the page it ends on won't load, and its address
+ *  carries the code. Engram checks the state is one it issued to this browser session. */
+function PasteBack({ c, busy, onStart, onDone }: { c: ConnectionDetail; busy: boolean; onStart: () => void; onDone: (r: ConnectResult) => void }) {
+  const [pasted, setPasted] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const url = signIns.get(c.id);
+
+  async function finish(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    let q: URLSearchParams;
+    try { q = new URL(pasted.trim()).searchParams; } catch { setError("That isn’t an address. Copy the whole thing from the address bar."); return; }
+    const state = q.get("state"), code = q.get("code"), iss = q.get("iss");
+    if (q.get("error")) { setError(`${c.name} didn’t approve the sign-in. Open it again to retry.`); return; }
+    if (!state || !code) { setError("That address has no sign-in code in it. Paste the one the sign-in ended on."); return; }
+    setSending(true);
+    try { onDone(await api.finishOAuth({ state, code, ...(iss ? { iss } : {}) })); } catch (err) { setError(errText(err)); } finally { setSending(false); }
+  }
+
+  return (
+    <div className="flex flex-col gap-3 text-[13px]">
+      <p className="text-ink-2">{c.name} only sends sign-ins back to apps on your own computer, so this one ends on a page that won’t load. That’s expected: copy that page’s address and paste it here.</p>
+      <div className="flex gap-2 flex-wrap">
+        {url
+          ? <><a className="bt bt-primary" href={url} target="_blank" rel="noopener noreferrer">Open {c.name} sign-in</a><Btn kind="quiet" disabled={busy} onClick={onStart}>New link</Btn></>
+          : <Btn kind="primary" disabled={busy} onClick={onStart}>Start sign-in</Btn>}
+      </div>
+      <form className="flex gap-2 flex-wrap" onSubmit={finish}>
+        <input value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="http://127.0.0.1/engram/oauth/callback?code=…" aria-label="Address the sign-in ended on"
+          autoComplete="off" spellCheck={false} className="field flex-1 min-w-[220px] font-mono text-[12.5px]" />
+        <button type="submit" disabled={sending || !pasted.trim()} className="bt">{sending ? "Finishing…" : "Finish sign-in"}</button>
+      </form>
+      {error && <p role="alert" className="text-bad">{error}</p>}
+    </div>
   );
 }
 

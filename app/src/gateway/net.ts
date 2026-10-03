@@ -73,7 +73,7 @@ function bodyOf(b: RequestInit["body"], headers: Headers): string | Buffer | und
   throw httpErr(500, "Unsupported request body");
 }
 
-/** A fetch for the MCP client SDK. Redirects are followed by hand (max 5) so each hop is checked too. */
+/** A fetch for the MCP client SDK. Redirects are followed by hand (max 5) so each hop is checked too; redirect "manual" returns the 3xx. */
 export async function safeFetch(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
   let url = new URL(input instanceof Request ? input.url : String(input));
   let method = (init.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -84,7 +84,7 @@ export async function safeFetch(input: string | URL | Request, init: RequestInit
     checkUrl(url);
     const res = await send(url, method, headers, body, init.signal ?? undefined);
     const loc = res.headers.location;
-    if ([301, 302, 303, 307, 308].includes(res.statusCode || 0) && loc) {
+    if (init.redirect !== "manual" && [301, 302, 303, 307, 308].includes(res.statusCode || 0) && loc) {
       res.resume();
       url = new URL(loc, url);
       if (res.statusCode === 303 || ((res.statusCode === 301 || res.statusCode === 302) && method === "POST")) { method = "GET"; body = undefined; headers.delete("content-type"); }

@@ -209,6 +209,35 @@ test("OAuth: discovery, DCR, PKCE, callback bound to the session, refresh", asyn
   assert.equal((await req("GET", "/api/connections/notes-two", undefined, { cookie })).json.status, "ok");
 });
 
+test("OAuth paste-back: a server that refuses Engram's callback signs in through a pasted loopback address", async () => {
+  const LOOPBACK = "http://127.0.0.1/engram/oauth/callback";
+  const lo = await mockUpstream({ auth: "oauth", accepts: (u) => u === LOOPBACK });
+  try {
+    const r = await req("POST", "/api/connections", { name: "Canvas", url: lo.url, auth: "oauth" }, { cookie });
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.connection.paste_back, true);
+    assert.equal(lo.registrations, 2, "registered again with the loopback address");
+    const az = new URL(r.json.authorize_url);
+    assert.equal(az.searchParams.get("redirect_uri"), LOOPBACK);
+    // The browser lands on the unreachable loopback page; you paste its address and the web app posts state and code.
+    const landed = new URL((await fetch(az, { redirect: "manual" })).headers.get("location"));
+    assert.equal(landed.origin + landed.pathname, LOOPBACK);
+    const ok = await req("POST", "/api/connections/oauth/finish", { state: landed.searchParams.get("state"), code: landed.searchParams.get("code") }, { cookie });
+    assert.equal(ok.status, 200, ok.text);
+    assert.equal(ok.json.connection.status, "ok");
+    assert.equal(ok.json.connection.tools.length, 5);
+  } finally { await req("DELETE", "/api/connections/canvas", undefined, { cookie }); await lo.close(); }
+
+  const no = await mockUpstream({ auth: "oauth", accepts: () => false });
+  try {
+    const r = await req("POST", "/api/connections", { name: "Nope", url: no.url, auth: "oauth" }, { cookie });
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.json.authorize_url, null);
+    assert.equal(no.registrations, 2, "tries loopback once, then stops");
+    assert.match(r.json.connection.detail, /won't send the sign-in back to Engram/);
+  } finally { await req("DELETE", "/api/connections/nope", undefined, { cookie }); await no.close(); }
+});
+
 test("disconnect drops the connection, its grants and its secrets", async () => {
   const r = await req("DELETE", "/api/connections/notes-two", undefined, { cookie });
   assert.equal(r.status, 200);

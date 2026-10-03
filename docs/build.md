@@ -96,6 +96,8 @@ Gateway (M2): `GET|POST /api/connections` → Connection[] / ConnectResult · `G
 `GET /api/connections/oauth/callback` (no cookie → hands off to the web app) · `POST /api/connections/oauth/finish {state,code,iss?}`
 `PUT /api/agents/:id/tools {tools}` → Agent. Code in `app/src/gateway/`; tests set `ENGRAM_DEV_ALLOW_LOCAL=1` to reach a mock on
 `http://127.0.0.1`, and `ENGRAM_URL` overrides the OAuth redirect base (default `https://$ENGRAM_HOST`).
+A server whose authorize answers 400 naming the redirect (Canva allowlists callbacks) is re-registered once with
+`http://127.0.0.1/engram/oauth/callback`; the connection turns `paste_back` and you paste the address the sign-in lands on.
 
 ## Rules
 

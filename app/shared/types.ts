@@ -144,6 +144,8 @@ export type ConnectionAuth = "oauth" | "bearer" | "none";
 export interface ConnectionTool { name: string; kind: "read" | "write"; policy: ToolPolicy; description: string; agents: string[]; pinned: boolean; changed: boolean }
 export interface ConnectionDetail extends Connection {
   url: string; auth: ConnectionAuth; untrusted: boolean; connected_at: number | null; refreshed_at: number | null;
+  /** The server only sends sign-ins back to your own computer: you paste the address the sign-in ends on. */
+  paste_back: boolean;
   tools: ConnectionTool[]; changes: { tool: string; approved: string; now: string }[];
   /** Active memories an agent saved within 10 minutes of calling this connection. */
   memories: number;

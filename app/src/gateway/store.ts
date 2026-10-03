@@ -28,6 +28,8 @@ export const ENGRAM: Actor = { id: null, name: "engram" };
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 // 12 chars keeps mcp__engram__<conn>__ short enough that most tool names fit the 64-char client limit unshortened.
 export const CONN_ID = /^[a-z0-9][a-z0-9-]{0,11}$/;
+/** Secret name flagging a connection whose sign-in you paste back (see LOOPBACK in upstream.ts); disconnect drops it. */
+export const PASTE_BACK = (id: string) => `conn:${id}:loopback`;
 export const TOOL_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 
 export type ConnRow = { id: string; name: string; url: string; auth: ConnectionAuth; untrusted: number; state: "new" | "ok" | "auth" | "error"; error: string | null; created_at: number; connected_at: number | null; refreshed_at: number | null };
@@ -128,6 +130,7 @@ export function connectionDetail(id: string): ConnectionDetail {
   const tools = toolRows(id), g = grantsByTool(id);
   return {
     id: c.id, name: c.name, ...summary(c, tools), url: c.url, auth: c.auth, untrusted: !!c.untrusted,
+    paste_back: !!one("SELECT 1 FROM secrets WHERE name=?", PASTE_BACK(id)),
     connected_at: c.connected_at, refreshed_at: c.refreshed_at, tools: tools.map((t) => tool(t, g.get(t.name) || [])),
     changes: tools.filter((t) => t.current_hash !== t.pinned_hash).map((t) => ({ tool: t.name, approved: t.pinned_text, now: t.current_text })),
     memories: one<{ n: number }>("SELECT COUNT(*) n FROM docs d, json_each(d.data,'$.connections') c WHERE d.kind='memory' AND d.status='active' AND c.value=?", id)!.n,

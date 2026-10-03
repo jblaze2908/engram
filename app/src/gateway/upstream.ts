@@ -8,13 +8,16 @@ import { one, run } from "../db.js";
 import { sha, safeEq } from "../auth.js";
 import { safeFetch } from "./net.js";
 import { getSecret, putSecret, getJson, putJson, dropSecret, dropSecrets } from "./secrets.js";
-import { connRow, connRows, setState, reconcile, type ConnRow } from "./store.js";
+import { connRow, connRows, setState, reconcile, PASTE_BACK, type ConnRow } from "./store.js";
 import { refreshRegistry } from "./catalog.js";
 import { pruneCalls } from "./gate.js";
 import { BUILTIN_GOOGLE, googleServer, googleAuthUrl, googleExchange, accessToken } from "./google.js";
 
 export const ENGRAM_URL = (process.env.ENGRAM_URL || `https://${HOST}`).replace(/\/$/, "");
 export const REDIRECT = `${ENGRAM_URL}/api/connections/oauth/callback`;
+// For servers that only send sign-ins back to apps on your own computer (Canva). The browser ends on this unreachable
+// address and you paste it into Engram; its code is useless without the PKCE verifier, which never leaves the server.
+export const LOOPBACK = "http://127.0.0.1/engram/oauth/callback";
 const STATE_TTL = 10 * 60_000;
 const REFRESH_EVERY = 6 * 3600_000;
 const sec = (id: string, k: string) => `conn:${id}:${k}`;
@@ -22,10 +25,10 @@ const sec = (id: string, k: string) => `conn:${id}:${k}`;
 /** OAuth storage for one connection. `session` is set only for a flow you started in the browser; background refresh has none. */
 class Provider implements OAuthClientProvider {
   authUrl: URL | null = null;
-  constructor(private id: string, private session: string | null) {}
-  get redirectUrl() { return REDIRECT; }
+  readonly redirectUrl: string;
+  constructor(private id: string, private session: string | null) { this.redirectUrl = getSecret(PASTE_BACK(id)) ? LOOPBACK : REDIRECT; }
   get clientMetadata(): OAuthClientMetadata {
-    return { client_name: "Engram", redirect_uris: [REDIRECT], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
+    return { client_name: "Engram", redirect_uris: [this.redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
   }
   state() {
     if (!this.session) throw httpErr(409, "Sign in to this connection again from Connections");
@@ -137,17 +140,38 @@ export async function connect(id: string, session: string): Promise<string | nul
   if (c.url === BUILTIN_GOOGLE) {
     if (!getJson(sec(id, "tokens"))) { setState(id, "auth", "Needs you to sign in"); return googleAuthUrl(id, REDIRECT, new Provider(id, session).state()); }
   } else if (c.auth === "oauth") {
-    const p = new Provider(id, session);
-    let r: string;
-    try { r = await auth(p, { serverUrl: c.url, fetchFn: safeFetch }); } catch (e) {
+    let url: URL | null;
+    try { url = await authorizeUrl(c, session); } catch (e) {
       const d = describe(e, c);
       setState(id, d.state, d.error);
       throw httpErr(502, `${c.name}: ${d.state === "auth" ? "sign-in failed" : d.error}`);
     }
-    if (r === "REDIRECT") { setState(id, "auth", "Needs you to sign in"); return p.authUrl!.href; }
+    if (url) { setState(id, "auth", "Needs you to sign in"); return url.href; }
   }
   await refreshTools(id);
   return null;
+}
+
+/** Discovery and registration; null when tokens already work. A server that refuses Engram's callback address gets
+ *  registered again with LOOPBACK, once: after that the connection stays paste-back until it is disconnected. */
+async function authorizeUrl(c: ConnRow, session: string): Promise<URL | null> {
+  for (;;) {
+    const p = new Provider(c.id, session);
+    if ((await auth(p, { serverUrl: c.url, fetchFn: safeFetch })) !== "REDIRECT") return null;
+    if (!(await refusesRedirect(p.authUrl!))) return p.authUrl!;
+    if (p.redirectUrl === LOOPBACK) throw httpErr(400, `Refused: ${c.name} won't send the sign-in back to Engram`);
+    p.invalidateCredentials("all");
+    putSecret(PASTE_BACK(c.id), "1");
+  }
+}
+
+/** One unfollowed GET per Connect press: a 400 that names the redirect means the server allowlists callback addresses. */
+async function refusesRedirect(u: URL) {
+  try {
+    const res = await safeFetch(u, { redirect: "manual" });
+    if (res.status !== 400) { await res.body?.cancel(); return false; }
+    return /redirect/i.test((await res.text()).slice(0, 2000));
+  } catch { return false; }
 }
 
 /** The callback leg: the state must be one we issued, unused, under 10 minutes old, and from this same browser session. */

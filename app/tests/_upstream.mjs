@@ -1,7 +1,8 @@
 // A mock upstream MCP server on 127.0.0.1, built with @modelcontextprotocol/server. auth "bearer" checks a fixed PAT;
 // auth "oauth" also serves a minimal authorization server: RFC 9728 + RFC 8414 metadata, DCR, authorize with
 // auto-consent, PKCE S256 token exchange and refresh. Tool texts live in `descs`, so a test can change them; `extra`
-// registers more tools, `scopes` adds scopes_supported to the protected-resource metadata.
+// registers more tools, `scopes` adds scopes_supported to the protected-resource metadata, `accepts(redirect_uri)` makes
+// authorize refuse other callback addresses the way Canva does.
 import { createServer } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { getRequestListener } from "@hono/node-server";
@@ -11,7 +12,7 @@ import { z } from "zod";
 const rand = () => randomBytes(16).toString("base64url");
 const json = (v, status = 200, headers = {}) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json", ...headers } });
 
-export async function mockUpstream({ auth = "bearer", pat = "pat-123", authServer, extra, scopes } = {}) {
+export async function mockUpstream({ auth = "bearer", pat = "pat-123", authServer, extra, scopes, accepts } = {}) {
   const m = {
     descs: { list_issues: "List issues in a repository.", create_issue: "Create a new issue in a repository.", q: "What to look for" },
     inits: 0, calls: [], registrations: 0, refreshes: 0, issued: [], access: new Set(), refresh: new Set(), codes: new Map(), seenAuth: [],
@@ -55,6 +56,7 @@ export async function mockUpstream({ auth = "bearer", pat = "pat-123", authServe
     if (p === "/authorize") {
       const q = u.searchParams, code = rand();
       if (q.get("code_challenge_method") !== "S256" || !q.get("code_challenge")) return json({ error: "invalid_request" }, 400);
+      if (accepts && !accepts(q.get("redirect_uri"))) return new Response("Invalid redirect URI.", { status: 400, headers: { "content-type": "text/plain" } });
       m.codes.set(code, { challenge: q.get("code_challenge"), client: q.get("client_id"), redirect: q.get("redirect_uri") });
       const to = new URL(q.get("redirect_uri"));
       to.searchParams.set("code", code); to.searchParams.set("state", q.get("state"));
