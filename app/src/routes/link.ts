@@ -124,7 +124,7 @@ export const link = new Hono<Env>()
   .post("/link/memories", async (c) => {
     const b = await body(c, z.object({
       pitcrew_id: PID, text: z.string().trim().min(1).max(2000), supersedes: z.string().regex(ID).nullable().optional(),
-      ref: z.string().max(120).optional(), untrusted: z.boolean().optional(), by: z.enum(["member", "driver"]).optional(),
+      ref: z.string().max(120).optional(), untrusted: z.boolean().optional(), review: z.boolean().optional(), by: z.enum(["member", "driver"]).optional(),
       valid_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     }));
     return c.json(await remember(c.get("agent"), memberOf(b.pitcrew_id), b));

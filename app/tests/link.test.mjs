@@ -209,6 +209,10 @@ test("memories: clean turn accepted, own list and sync, dupes, supersede own onl
   assert.ok((await L("GET", "/link/memories?pitcrew_id=health")).json.memories.some((x) => x.id === d.json.id), "yours, filed under the member");
   const over = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Blood group is B+", supersedes: d.json.id });
   assert.equal(over.json.status, "held", "a member rewriting what you added waits for you");
+  const r = await L("POST", "/link/memories", { pitcrew_id: "health", text: "Prefers morning appointments", review: true });
+  assert.equal(r.json.status, "open", "review: waits in the inbox even from a clean turn");
+  assert.ok((await L("GET", "/link/inbox")).json.proposals.some((p) => p.id === r.json.id && !p.held));
+  assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: "Blood type check done", review: true, by: "driver" })).json.status, "accepted", "the driver's own note never waits");
   assert.equal((await L("POST", "/link/memories", { pitcrew_id: "nobody", text: "z" })).status, 404);
   assert.equal((await L("POST", "/link/memories", { pitcrew_id: "health", text: " " })).status, 400);
 });
