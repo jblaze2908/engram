@@ -27,6 +27,8 @@ export type ProposeInput = {
 };
 export type ProposeResult = { status: "accepted" | "open" | "held"; id: string; reasons: string[] };
 
+// A memory is one claim; an episode can carry a whole session's outcome, so it may run longer.
+export const MEMORY_MAX = 4000, EPISODE_MAX = 20000;
 const MONEY = /\b(accounts?|a\/c|ifsc|upi|vpa|payments?|pay(ee|ing)?|bank|iban|swift|routing number|transfer)\b/i;
 // Extensions come from this list only, so a kept file can never be served as HTML or script.
 export const MIMES: Record<string, string> = { "application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "text/plain": "txt", "text/csv": "csv" };
@@ -82,6 +84,7 @@ async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[])
   // Rule 1: episodes describe, they don't assert, so an authenticated agent's go straight in.
   if (input.kind === "episode") {
     if (!input.text) throw httpErr(400, "An episode needs text");
+    if (input.text.length > EPISODE_MAX) throw httpErr(400, `An episode is at most ${EPISODE_MAX} characters`);
     // An episode is read like any record, so it needs a scope the agent may write.
     const scope = input.scope || "personal";
     if (!canPropose(agent, scope)) refuse(who, "propose", "episode", scope, `No propose grant for ${scope}`);
@@ -105,6 +108,7 @@ async function proposeLocked(agent: Agent, input: ProposeInput, extra: string[])
   if (input.kind === "memory") {
     const text = (input.text || "").trim();
     if (!text) throw httpErr(400, "A memory needs text");
+    if (text.length > MEMORY_MAX) throw httpErr(400, `A memory is one claim, at most ${MEMORY_MAX} characters`);
     key = norm(text);
     if (input.supersedes) {
       const old = memoryById(input.supersedes);

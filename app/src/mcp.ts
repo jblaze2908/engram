@@ -1,17 +1,20 @@
 // The one MCP endpoint: stateless Streamable HTTP, bearer-authenticated (eg_ agent tokens or OAuth access tokens), four
 // tools. Every call is traced and every read is cut to the caller's read grants; asking for a record outside them is
 // refused and traced, never answered.
+import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { McpServer, OAuthError, OAuthErrorCode, bearerAuthChallengeResponse, createMcpHandler } from "@modelcontextprotocol/server";
 import type { Context } from "hono";
 import { z } from "zod";
 import type { Agent, Scope } from "../shared/types.js";
 import { SCOPES } from "../shared/types.js";
-import { HOST, now, type HttpError } from "./config.js";
+import { HOST, VAULT, now, type HttpError } from "./config.js";
 import { run } from "./db.js";
 import { authenticate, readScopes } from "./agents.js";
 import { trace, type Actor } from "./trace.js";
-import { search, SEARCHABLE } from "./search.js";
-import { propose } from "./proposals.js";
+import { search, SEARCHABLE, agentNames, provenanceOf, readableIds } from "./search.js";
+import { MAX_FILE, TEXT } from "./artifacts/shared.js";
+import { propose, EPISODE_MAX, MEMORY_MAX } from "./proposals.js";
 import { publish } from "./artifacts/app.js";
 import { compile, entityView } from "./views.js";
 import * as S from "./store.js";
@@ -28,14 +31,26 @@ const errMsg = (e: unknown) => { const err = e as HttpError; if (!err.status || 
 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,59}$/);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const when = z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?)?$/);
+// A bare date is midnight on the server's clock (Asia/Kolkata in production), as the trace and journal days are.
+const toMs = (s: string) => (s.length === 10 ? new Date(`${s}T00:00:00`).getTime() : Date.parse(s));
 const Search = z.object({
-  query: z.string().min(1).max(500), kind: z.enum([...SEARCHABLE, "tool"]).optional(), area: slug.optional(), project: slug.optional(),
+  query: z.string().min(1).max(500), kind: z.enum([...SEARCHABLE, "tool"]).optional().describe("only this kind of record"), area: slug.optional(), project: slug.optional(),
   limit: z.number().int().min(1).max(50).optional(),
+  agent: z.string().min(1).max(120).optional().describe("only records this agent (name or id) wrote, proposed or logged"),
+  after: when.optional().describe("created or logged on or after this date (YYYY-MM-DD) or time"), before: when.optional().describe("created or logged before this date or time"),
 });
-const Get = z.object({ id: z.string().min(1).max(120) });
+const PAGE = 20_000;
+const Get = z.object({
+  id: z.string().min(1).max(120),
+  offset: z.number().int().min(0).optional().describe("where to start reading a long text (page.next_offset from the last call)"),
+  limit: z.number().int().min(1).max(100_000).optional().describe(`characters of it to return; default ${PAGE}`),
+});
+// provenance rides on passthrough: spelling it out cost every client 911 more bytes of tools/list.
 const Hit = z.object({ kind: z.string(), id: z.string(), title: z.string(), snippet: z.string().optional(), area: z.string().optional(), scope: z.string().optional(), valid_until: z.string().nullish() }).passthrough();
 const SearchOut = z.object({ hits: z.array(Hit) });
-const GetOut = z.object({ kind: z.string(), record: z.unknown() });
+const Page = z.object({ field: z.string(), offset: z.number(), limit: z.number(), total: z.number(), next_offset: z.number().nullable() });
+const GetOut = z.object({ kind: z.string(), record: z.unknown(), page: Page.optional() }).passthrough();
 const ProposeOut = z.object({ status: z.string(), id: z.string().nullable().optional(), reasons: z.array(z.string()) }).passthrough();
 const ProfileOut = z.object({ target: z.string(), text: z.string(), lines: z.number() });
 const Publish = z.object({
@@ -49,7 +64,7 @@ const Publish = z.object({
 const PublishOut = z.object({ id: z.string(), version: z.number(), url: z.string(), public_url: z.string().nullable(), status: z.string() });
 const Propose = z.object({
   kind: z.enum(["memory", "entity", "artifact", "skill", "episode"]),
-  text: z.string().max(4000).optional().describe("memory or episode: the claim, or what happened"),
+  text: z.string().max(EPISODE_MAX).optional().describe(`memory (up to ${MEMORY_MAX} characters): the claim; episode: what happened, in full`),
   title: z.string().max(200).optional(), name: z.string().max(120).optional(), summary: z.string().max(1000).optional(),
   description: z.string().max(300).optional(), body: z.string().max(20000).optional(),
   area: slug.optional(), project: slug.nullable().optional(), scope: z.enum(SCOPES as [Scope, ...Scope[]]).optional(),
@@ -70,20 +85,49 @@ function recordReads(agent: Agent, ids: string[]) {
   for (const id of ids) run("INSERT INTO reads(memory_id,agent,n,last_at) VALUES(?,?,1,?) ON CONFLICT(memory_id,agent) DO UPDATE SET n=n+1, last_at=excluded.last_at", id, agent.id, t);
 }
 
-function getRecord(agent: Agent, who: Actor, scopes: Scope[], id: string) {
-  const doc = S.docById(id);
+// Long text comes a page at a time instead of being cut: page.total is its length and next_offset where the rest starts.
+function paged(rec: Record<string, unknown>, field: string, offset: number, limit: number) {
+  const full = rec[field];
+  if (typeof full !== "string") return undefined;
+  const start = Math.min(offset, full.length);
+  let end = Math.min(full.length, start + limit);
+  // Never end a page inside a surrogate pair, and never return an empty page before the end.
+  if (end < full.length && end - 1 > start && /[\uD800-\uDBFF]/.test(full[end - 1])) end--;
+  rec[field] = full.slice(start, end);
+  return { field, offset: start, limit, total: full.length, next_offset: end < full.length ? end : null };
+}
+
+// Text files are what an agent can read of an artifact (its url opens only for the user). One file read per get of
+// a text artifact, which is what the call is for; binaries and anything over MAX_FILE stay links only.
+const READABLE = new Set(["md", "markdown", "html", "htm", "svg", ...TEXT]);
+function artifactText(a: { versions?: { sha256: string; ext: string }[] }) {
+  const cur = a.versions?.at(-1);
+  if (!cur || !READABLE.has(cur.ext)) return undefined;
+  try {
+    const p = join(VAULT, "artifacts/files", `${cur.sha256}.${cur.ext}`);
+    return statSync(p).size > MAX_FILE ? undefined : readFileSync(p, "utf8");
+  } catch { return undefined; }
+}
+
+const LONG: Partial<Record<S.DocKind, string>> = { memory: "text", episode: "text", artifact: "text", skill: "body", profile: "body" };
+function getRecord(agent: Agent, who: Actor, scopes: Scope[], a: { id: string; offset?: number; limit?: number }) {
+  const id = a.id, doc = S.docById(id);
   if (!doc || doc.kind === "area" || doc.kind === "project" || doc.status === "forgotten") { trace(who, "get", id, "error", null, "not found"); return fail("Not found"); }
   if (!scopes.includes(doc.scope)) { trace(who, "get", id, "refused", doc.scope, "outside read grants"); return fail("Outside this agent's read grants"); }
-  let rec: unknown, read: string[] = [];
+  let rec: any, read: string[] = [];
   if (doc.kind === "memory") { rec = S.memoryById(id); read = [id]; }
   else if (doc.kind === "entity") { const v = entityView(id, scopes)!; rec = v; read = v.memories.map((m) => m.id); }
-  else if (doc.kind === "artifact") rec = S.artifacts([doc])[0];
+  else if (doc.kind === "artifact") { rec = S.artifacts([doc])[0]; const t = artifactText(rec); if (t !== undefined) rec.text = t; }
   else if (doc.kind === "skill") rec = S.skills([doc.title])[0];
   else rec = S.docData(doc);
   recordReads(agent, read);
   taintFrom(agent.id, [rec]);
-  trace(who, "get", id, "ok", doc.scope);
-  return text({ kind: doc.kind, record: rec });
+  const data = S.docData<any>(doc), provenance = provenanceOf(doc.kind, data, doc.at, doc.mtime, agentNames());
+  const ref = data?.source?.ref;
+  if (!provenance.open && ref && readableIds([ref], scopes).has(ref)) provenance.open = { id: ref };
+  const page = LONG[doc.kind] ? paged(rec, LONG[doc.kind]!, a.offset ?? 0, a.limit ?? PAGE) : undefined;
+  trace(who, "get", id, "ok", doc.scope, page?.next_offset != null ? `chars ${page.offset}-${page.next_offset} of ${page.total}` : null);
+  return text({ kind: doc.kind, record: rec, provenance, ...(page ? { page } : {}) });
 }
 
 // A gated upstream call's status and, once run, its result (kept 1 h). Only the agent that made it can read it.
@@ -106,15 +150,18 @@ function proposeSchema() {
 function server(agent: Agent) {
   const who: Actor = { id: agent.id, name: agent.name }, scopes = readScopes(agent);
   const s = new McpServer({ name: "engram", version: "0.1.0" }, { instructions: instructions(agent, scopes) });
-  s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal, profile, skills (kind \"skill\"; load one with get) and the upstream tools you may call (kind \"tool\").", inputSchema: Search, outputSchema: SearchOut }, (a) => {
-    const { hits, withheld } = a.kind === "tool" ? { hits: [], withheld: 0 } : search({ ...a, kind: a.kind as Exclude<typeof a.kind, "tool">, scopes });
+  s.registerTool("search", { description: "Search what Engram knows that you may read: memories, people and things, files, journal (kind \"episode\"), profile, skills (kind \"skill\"; load one with get) and the upstream tools you may call (kind \"tool\"). Filter by kind, area, agent and date. Each hit's provenance says who it came from (trust: user, agent or untrusted), whether it was reviewed, when, and open: the source to get or its URL. Open a hit in full with get.", inputSchema: Search, outputSchema: SearchOut }, (a) => {
+    const after = a.after ? toMs(a.after) : undefined, before = a.before ? toMs(a.before) : undefined;
+    if (Number.isNaN(after) || Number.isNaN(before)) return fail("after and before take a date (YYYY-MM-DD) or an ISO 8601 time");
+    const { hits, withheld } = a.kind === "tool" ? { hits: [], withheld: 0 } : search({ ...a, after, before, kind: a.kind as Exclude<typeof a.kind, "tool">, scopes });
     recordReads(agent, hits.filter((h) => h.kind === "memory").map((h) => h.id));
     taintFrom(agent.id, hits);
-    if (!a.kind || a.kind === "tool") (hits as unknown[]).push(...toolHits(agent, a.query, a.limit ?? 10));
+    // Tools have no author or date, so an agent or date filter leaves them out.
+    if ((!a.kind || a.kind === "tool") && !a.agent && !a.after && !a.before) (hits as unknown[]).push(...toolHits(agent, a.query, a.limit ?? 10));
     trace(who, "search", a.query.slice(0, 80), "ok", null, `${hits.length} hits${withheld ? `, ${withheld} withheld` : ""}`);
     return text({ hits });
   });
-  s.registerTool("get", { description: "Get one record by id, as returned by search.", inputSchema: Get, outputSchema: GetOut }, (a) => a.id.startsWith("call:") ? getCall(agent, who, a.id) : getRecord(agent, who, scopes, a.id));
+  s.registerTool("get", { description: "Get one record by id, as returned by search, in full: a text artifact comes with its text. Long text comes in pages of up to limit characters; when page.next_offset is set, call again with offset to read on.", inputSchema: Get, outputSchema: GetOut }, (a) => a.id.startsWith("call:") ? getCall(agent, who, a.id) : getRecord(agent, who, scopes, a));
   s.registerTool("propose", { description: "Propose a memory, entity, artifact or skill for review, or log an episode (what you did). Say where it came from in source, and give an area.", inputSchema: proposeSchema(), outputSchema: ProposeOut }, async (a) => {
     try { return text(await propose(agent, a) as unknown as Record<string, unknown>); } catch (e) { return fail(errMsg(e)); }
   });

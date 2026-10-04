@@ -4,7 +4,7 @@ import { one, all, json, marks, type Row } from "./db.js";
 import { allLinks, linkOf, linkUrl } from "./artifacts/shares.js";
 
 export type DocKind = "memory" | "entity" | "artifact" | "episode" | "skill" | "profile" | "area" | "project";
-export type DocRow = { id: string; kind: DocKind; path: string; title: string; area: string; scope: Scope; status: string; data: string; at: number };
+export type DocRow = { id: string; kind: DocKind; path: string; title: string; area: string; scope: Scope; status: string; data: string; at: number; mtime: number };
 
 export const docById = (id: string) => one<DocRow>("SELECT * FROM docs WHERE id=?", id);
 export const docData = <T>(r: { data: string }) => json<T>(r.data, {});

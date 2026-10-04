@@ -8,7 +8,7 @@ import type { Agent, ArtifactKind, Decision, LinkInbox } from "../../shared/type
 import { HOST, now, httpErr, type HttpError } from "../config.js";
 import { one, all } from "../db.js";
 import { authenticate } from "../agents.js";
-import { decide, toProposal } from "../proposals.js";
+import { decide, toProposal, EPISODE_MAX } from "../proposals.js";
 import { digest } from "../digest.js";
 import { trace } from "../trace.js";
 import { memberOf, setHousehold, upsertMember } from "../link/members.js";
@@ -136,7 +136,7 @@ export const link = new Hono<Env>()
   })
   .post("/link/episodes", async (c) => {
     const b = await body(c, z.object({
-      pitcrew_id: PID, text: z.string().trim().min(1).max(4000), at,
+      pitcrew_id: PID, text: z.string().trim().min(1).max(EPISODE_MAX), at,
       outputs: z.array(z.object({ kind: z.string().min(1).max(20), ref: z.string().min(1).max(200), label: z.string().max(200) })).max(20).optional(),
     }));
     return c.json(await episode(c.get("agent"), memberOf(b.pitcrew_id), b));

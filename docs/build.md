@@ -65,9 +65,15 @@ Decisions: `accept` (writes file, commit), `keep` (= reject, keeps current), `re
 
 Streamable HTTP, stateless, via `@modelcontextprotocol/server` + `@modelcontextprotocol/hono`, bearer auth.
 Tools (keep descriptions short; this is the whole surface):
-- `search({ query, kind?, area?, project?, limit? })` → ranked memories, entities, artifacts, journal entries,
-  skills, profile sections the caller may read. Each hit: `{ kind, id, title, snippet, area, scope, source, valid_until }`.
-- `get({ id })` → the full record (memory, entity view, artifact, episode, skill, profile file).
+- `search({ query, kind?, area?, project?, limit?, agent?, after?, before? })` → ranked memories, entities, artifacts,
+  journal entries, skills, profile sections the caller may read. `agent` (name or id) matches `source.agent`, and an
+  episode's `who`; `after`/`before` bound `docs.at` (a bare date is midnight server time). Filters only narrow the
+  scoped query. Each hit: `{ kind, id, title, snippet, area, scope, source, valid_until, provenance }`, provenance
+  `{ trust: user|agent|untrusted, by, review: accepted|not_reviewed, created_at, updated_at, open: {id}|{url} }` from
+  stored fields only (null where not stored); `open.id` only when the source record is within the caller's grants.
+- `get({ id, offset?, limit? })` → the full record (memory, entity view, artifact, episode, skill, profile file) and its
+  provenance. A text artifact adds `text` (its current file). The long field comes in pages (default 20 000 chars):
+  `page: { field, offset, limit, total, next_offset }`, `next_offset` null at the end.
 - `propose({ kind: "memory"|"entity"|"artifact"|"skill"|"episode", ... })` → `{ status: "accepted"|"open"|"held", id, reasons }`.
 - `profile()` → the compiled profile for this agent's target, within its read grants.
 Each call writes a trace row and bumps read counts for returned memories.
