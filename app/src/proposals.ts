@@ -18,6 +18,7 @@ import { decideToolChange } from "./gateway/store.js";
 import { decideToolCall } from "./gateway/gate.js";
 import { decideShare, writeManifest } from "./artifacts/app.js";
 import { mimeOf } from "./artifacts/shared.js";
+import { applyDream } from "./dream.js";
 
 export type ProposeInput = {
   kind: ProposalKind | "episode"; text?: string; title?: string; name?: string; summary?: string; description?: string; body?: string;
@@ -183,6 +184,7 @@ async function acceptLocked(p: Proposal, who: Actor) {
 // Writes the accepted record; returns the vault paths it touched and the commit message.
 function write(p: Proposal, t: number): { paths: string[]; msg: string } {
   if (p.kind === "vault_conflict") return useRemoteVersion(p);
+  if (p.kind === "dream") return applyDream(p);
   const d = p.data as Record<string, any>;
   if (p.kind === "memory") {
     const m = { ...(d as Memory), accepted_at: t }, paths = [memoryPath(m)];

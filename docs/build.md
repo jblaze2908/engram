@@ -61,6 +61,28 @@ Decisions: `accept` (writes file, commit), `keep` (= reject, keeps current), `re
 (reject + mark every memory with the same `source.ref` as `forgotten`). Forgetting never deletes a file; it sets
 `status: forgotten` and commits. Everything is in the trace.
 
+## Dreaming (nightly tidy-up)
+
+`app/src/dream.ts`. Once per IST day from 03:00, the minute job (`jobs.ts`) runs one pass over active memories and puts
+proposals of kind `dream` in the inbox. It never changes a memory itself; nothing applies until you accept.
+- **Merge**: two memories of one scope that say the same thing (cosine ≥ 0.85, same values, word overlap ≥ 0.75). Keeps
+  yours, then trusted, then the fuller, then the newer; accepting supersedes the other (`superseded_by` the keeper).
+- **Supersede**: same words, different values (numbers, dates, months, weekdays), different `observed_at`. The newer
+  wins unless only an untrusted source says it. Accepting supersedes the older.
+- **Retire**: `valid_until` has passed. Accepting sets `status: forgotten` (the file stays, like any forget).
+- Anything else proposes nothing. Paraphrases with different words, a changed name, values on one side only: left alone.
+- Scope is the boundary: a memory is only compared with memories of its own scope, and accept checks again.
+- Model: the local embedding model (potion-base-8M, already used by search) finds candidates (cosine ≥ 0.6, top 8),
+  a lexical judge decides. No API calls, no cost beyond CPU. Without the model the pass logs
+  `dream: no embedding model in …` and does nothing.
+- Bounds per night: at most 200 new or changed memories examined and 20 proposals. A watermark (`settings.dream_watermark`:
+  file mtime + id, and the last IST day for run-outs) skips what the last pass already saw; leftovers wait for the next
+  night. A pair proposed once, either way round, is never proposed again, even after a reject; a memory named in an open
+  tidy-up is skipped until you decide.
+- Tidy-ups are never held, so they don't push a 3 a.m. notification. Non-private ones mirror to Pitcrew like any proposal.
+- Measured on synthetic stores (dev Mac): 200 memories against a 5 000-memory pool ≈ 0.2 s, against 20 000 ≈ 0.8 s,
+  synchronous on the event loop.
+
 ## MCP endpoint `/mcp`
 
 Streamable HTTP, stateless, via `@modelcontextprotocol/server` + `@modelcontextprotocol/hono`, bearer auth.
