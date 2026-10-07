@@ -3,6 +3,9 @@ import type { CatalogEntry, ConnectionAuth, ConnectResult } from "../../../share
 import { api } from "../lib/api";
 import { Btn, cx, Toggle } from "./ui";
 
+/** Mirrors the server's id for a manual add: slugify(name), cut to 12 (routes/gateway.ts). */
+const slugId = (n: string) => (n.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "untitled").slice(0, 12).replace(/-+$/, "");
+
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const HOW: Record<ConnectionAuth, string> = { oauth: "Sign in", bearer: "Token", none: "No sign-in" };
 
@@ -84,6 +87,10 @@ function Connect({ e, onBack, onAdded }: { e: CatalogEntry; onBack: () => void; 
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [untrusted, setUntrusted] = useState(e.untrusted);
+  const [name, setName] = useState(e.name.slice(0, 40));
+  // An edited name makes the id, as the server does for a manual add; untouched, the catalog's id stands.
+  const edited = name.trim() !== e.name.slice(0, 40);
+  const id = edited ? slugId(name) : e.id || slugId(name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,7 +107,7 @@ function Connect({ e, onBack, onAdded }: { e: CatalogEntry; onBack: () => void; 
     setBusy(true); setError(null);
     try {
       onAdded(await api.addConnection({
-        name: e.name.slice(0, 40), id: e.id || undefined, url: e.url, auth, untrusted,
+        name: name.trim(), id: edited ? undefined : e.id || undefined, url: e.url, auth, untrusted,
         ...(auth === "bearer" ? { token: token.trim() } : {}),
         ...(auth === "oauth" && clientId.trim() ? { client_id: clientId.trim(), ...(clientSecret.trim() ? { client_secret: clientSecret.trim() } : {}) } : {}),
       }));
@@ -116,6 +123,11 @@ function Connect({ e, onBack, onAdded }: { e: CatalogEntry; onBack: () => void; 
         <p className="text-[12px] text-ink-3 mt-2 font-mono break-all">{e.url}</p>
         {e.docs && <a className="text-[12.5px] text-data hover:underline" href={e.docs} target="_blank" rel="noopener noreferrer">{e.source === "registry" ? "Website" : "Vendor docs"}</a>}
       </div>
+      <label className="flex flex-col gap-1.5 text-[13px] text-ink-3">
+        Name
+        <input required value={name} onChange={(ev) => setName(ev.target.value)} maxLength={40} className="field" />
+        <span className="text-[12px]">Agents see its tools as <span className="font-mono text-ink-2">{id}__…</span>. The name can change later; this part can’t.</span>
+      </label>
       {probing ? <p className="text-[13px] text-ink-3">Checking how it signs in…</p> : (
         <>
           {auth === "bearer" && (
