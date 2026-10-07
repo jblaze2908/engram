@@ -6,7 +6,7 @@ import { now, slugify, httpErr } from "../config.js";
 import { run, one } from "../db.js";
 import { getAgent } from "../agents.js";
 import { trace, YOU } from "../trace.js";
-import { forgetConnectionMemories } from "../proposals.js";
+import { forgetConnectionMemories, rekeyConnectionMemories } from "../proposals.js";
 import { you, body, sessionCookie } from "../api.js";
 import { assertPublicUrl } from "../gateway/net.js";
 import * as G from "../gateway/store.js";
@@ -75,6 +75,17 @@ export const gateway = new Hono()
   })
   .post("/api/connections/:id/connect", you, async (c) => c.json(await connectOrState(c, cid(c))))
   .post("/api/connections/:id/refresh", you, async (c) => { const id = cid(c); await U.refreshTools(id); return c.json(result(id, null)); })
+  // Changes every tool name (<id>__<tool>): clients that saved permissions or tool lists under the old names lose them.
+  .post("/api/connections/:id/id", you, async (c) => {
+    const from = cid(c), { id: to } = await body(c, z.object({ id: z.string().trim() }));
+    if (from === "google") throw httpErr(400, "The built-in Google connection keeps its id");
+    if (to === from) return c.json(result(from, null));
+    G.rekeyConnection(from, to);
+    await U.closeClient(from);
+    const memories = await rekeyConnectionMemories(from, to);
+    trace(YOU, "connection.id", to, "ok", null, `was ${from}${memories ? `, ${memories} memories updated` : ""}`);
+    return c.json(result(to, null));
+  })
   .post("/api/connections/:id/forget-memories", you, async (c) => c.json({ forgotten: await forgetConnectionMemories(cid(c)) }))
   .delete("/api/connections/:id", you, async (c) => {
     const id = cid(c);

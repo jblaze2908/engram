@@ -287,6 +287,23 @@ export function forgetConnectionMemories(conn: string, who: Actor = YOU) {
   });
 }
 
+/** Rewrites the connection id in every memory that names it, forgotten ones included, so forget-by-connection still finds them. */
+export function rekeyConnectionMemories(from: string, to: string) {
+  return withVault(async () => {
+    const paths: string[] = [];
+    for (const r of all<{ path: string }>("SELECT DISTINCT d.path FROM docs d, json_each(d.data,'$.connections') c WHERE d.kind='memory' AND c.value=?", from)) {
+      const doc = readDoc(r.path);
+      if (!doc || !Array.isArray(doc.fm.connections)) continue;
+      writeDoc(r.path, { fm: { ...doc.fm, connections: [...new Set(doc.fm.connections.map((c: unknown) => (c === from ? to : c)))] }, body: doc.body });
+      paths.push(r.path);
+    }
+    if (!paths.length) return 0;
+    await commit(paths, `connection ${from} is now ${to}: ${paths.length} memories`);
+    indexPaths(paths);
+    return paths.length;
+  });
+}
+
 export function forgetMemory(id: string, who: Actor = YOU) {
   return withVault(async () => {
     const d = docById(id);

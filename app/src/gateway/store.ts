@@ -212,6 +212,21 @@ export function decideToolChange(p: Proposal, decision: Decision, who: Actor) {
   run("UPDATE proposals SET status=?, decided_at=? WHERE id=?", decision === "accept" ? "accepted" : "rejected", now(), p.id);
 }
 
+/** Moves a connection to a new id in one transaction: its row, tools, grants, sign-in states, calls, secrets and open
+ *  proposals. Memories live in the vault (proposals.rekeyConnectionMemories); trace keeps the old id as history. */
+export function rekeyConnection(from: string, to: string) {
+  if (!CONN_ID.test(to)) throw httpErr(400, "Use 1-12 lowercase letters, numbers or dashes, starting with a letter or number");
+  if (connRow(to)) throw httpErr(409, "A connection with that id exists");
+  if (one("SELECT 1 FROM tool_calls WHERE conn_id=? AND status IN ('waiting','running')", from)) throw httpErr(409, "Finish or reject its waiting calls first");
+  tx(() => {
+    for (const t of ["conn_tools", "agent_tools", "oauth_states", "tool_calls"]) run(`UPDATE ${t} SET conn_id=? WHERE conn_id=?`, to, from);
+    run("UPDATE connections SET id=? WHERE id=?", to, from);
+    // CONN_ID allows no LIKE wildcards, so the prefix match is exact.
+    run("UPDATE secrets SET name=? || substr(name, ?) WHERE name LIKE ?", `conn:${to}:`, `conn:${from}:`.length + 1, `conn:${from}:%`);
+    run("UPDATE proposals SET data=json_set(data,'$.connection',?) WHERE json_extract(data,'$.connection')=?", to, from);
+  });
+}
+
 export function deleteConnection(id: string) {
   tx(() => {
     for (const t of ["conn_tools WHERE conn_id=?", "agent_tools WHERE conn_id=?", "oauth_states WHERE conn_id=?", "connections WHERE id=?"]) run(`DELETE FROM ${t}`, id);
