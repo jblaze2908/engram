@@ -9,6 +9,9 @@ import { useLoad } from "../lib/useLoad";
 import { AddFromCatalog } from "../components/Catalog";
 import { BackLink, Btn, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, ListPane, Loading, Main, Split, Toggle } from "../components/ui";
 
+/** Same rule as the server (gateway/store.ts). */
+const CONN_ID = /^[a-z0-9][a-z0-9-]{0,11}$/;
+
 const statusColor = (s: Connection["status"]) => (s === "signal" ? "var(--signal)" : s === "warn" ? "var(--warn)" : "var(--in)");
 const AUTH_LABEL: Record<ConnectionAuth, string> = { oauth: "Sign in (OAuth)", bearer: "Token or API key", none: "No sign-in" };
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -95,6 +98,7 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [at, setAt] = useState(0);
   const [token, setToken] = useState("");
   const [name, setName] = useState<string | null>(null); // null: showing the saved name
+  const [newId, setNewId] = useState<string | null>(null); // null: the Id row is closed
   if (!load.data) return load.error ? <ErrorNote error={load.error} onRetry={load.reload} /> : <Loading />;
   const c = load.data;
 
@@ -221,12 +225,38 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
       <Card className="mt-3">
         <CardHead left="Settings" />
         <form className="kv items-center" onSubmit={(e) => { e.preventDefault(); const n = (name ?? "").trim(); if (n && n !== c.name) run(() => api.updateConnection(c.id, { name: n }), "Renamed.").then(() => setName(null)); }}>
-          <span>Name <span className="block text-[12px] text-ink-3">Agents keep their access; tool names use the id <span className="font-mono">{c.id}</span></span></span>
+          <span>Name <span className="block text-[12px] text-ink-3">Only the label changes</span></span>
           <span className="flex items-center gap-2">
             <input value={name ?? c.name} onChange={(e) => setName(e.target.value)} maxLength={40} aria-label="Connection name" className="field !h-[34px] w-[220px]" />
             <button type="submit" disabled={busy || name === null || !name.trim() || name.trim() === c.name} className="bt bt-primary">Save</button>
           </span>
         </form>
+        <div className="kv items-center">
+          <span>Id <span className="block text-[12px] text-ink-3">The part of every tool name before <span className="font-mono">__</span></span></span>
+          {newId === null ? (
+            <span className="flex items-center gap-3">
+              <span className="font-mono text-[12.5px]">{c.id}</span>
+              {c.id !== "google" && <Btn disabled={busy} onClick={() => setNewId(c.id)}>Change</Btn>}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <input value={newId} onChange={(e) => setNewId(e.target.value.toLowerCase())} maxLength={12} aria-label="New id" autoComplete="off" spellCheck={false} className="field !h-[34px] w-[220px] font-mono text-[12.5px]" />
+              <Btn kind="quiet" onClick={() => setNewId(null)}>Cancel</Btn>
+            </span>
+          )}
+        </div>
+        {newId !== null && newId !== c.id && (
+          <div className="mx-[18px] mb-3.5 rounded-[10px] px-4 py-3.5 text-[13px] text-ink-2 flex flex-col gap-2.5 max-w-[720px]" style={{ background: "color-mix(in srgb,var(--signal) 10%,var(--surface))" }}>
+            <p><Dot color="var(--signal)" /> <span className="text-ink font-medium">Usually it’s better to keep the id.</span> Changing it renames every tool, from <span className="font-mono text-ink">{c.id}__{c.tools[0]?.name ?? "tool"}</span> to <span className="font-mono text-ink">{newId || "…"}__{c.tools[0]?.name ?? "tool"}</span>.</p>
+            <p>Agents keep their access in Engram. But anything outside Engram that saved the old names stops matching: Claude Code permission lists, Pitcrew members’ tool lists, prompts or skills that name a tool. A chat that’s already open may keep calling the old names until it reconnects.</p>
+            {!CONN_ID.test(newId) && <p className="text-bad">Use up to 12 lowercase letters, numbers or dashes, starting with a letter or number.</p>}
+            <div><Btn kind="primary" disabled={busy || !CONN_ID.test(newId)} onClick={() => run(async () => {
+              const r = await api.changeConnectionId(c.id, newId);
+              setNewId(null); navigate(`#/connections/${r.connection.id}`);
+              return r;
+            }, `Id changed to ${newId}.`)}>Change id to {newId}</Btn></div>
+          </div>
+        )}
         <div className="kv"><span>Server</span><span className="font-mono text-[12px] break-all">{c.url}</span></div>
         <div className="kv"><span>Sign-in</span><span>{AUTH_LABEL[c.auth]}</span></div>
         <div className="kv">

@@ -110,6 +110,7 @@ export const api = {
   connection: (id: string) => request<ConnectionDetail>("GET", `/api/connections/${enc(id)}`),
   addConnection: (c: NewConnection & { id?: string }) => request<ConnectResult>("POST", "/api/connections", c),
   updateConnection: (id: string, patch: { name?: string; untrusted?: boolean; token?: string }) => request<ConnectResult>("PATCH", `/api/connections/${enc(id)}`, patch),
+  changeConnectionId: (id: string, next: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/id`, { id: next }),
   connect: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/connect`),
   refreshConnection: (id: string) => request<ConnectResult>("POST", `/api/connections/${enc(id)}/refresh`),
   disconnect: (id: string, forgetMemories = false) => request<{ ok: true; forgotten: number }>("DELETE", `/api/connections/${enc(id)}${forgetMemories ? "?memories=forget" : ""}`),
