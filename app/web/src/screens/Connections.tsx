@@ -94,6 +94,7 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [at, setAt] = useState(0);
   const [token, setToken] = useState("");
+  const [name, setName] = useState<string | null>(null); // null: showing the saved name
   if (!load.data) return load.error ? <ErrorNote error={load.error} onRetry={load.reload} /> : <Loading />;
   const c = load.data;
 
@@ -219,6 +220,13 @@ function Detail({ id, onChanged }: { id: string; onChanged: () => void }) {
 
       <Card className="mt-3">
         <CardHead left="Settings" />
+        <form className="kv items-center" onSubmit={(e) => { e.preventDefault(); const n = (name ?? "").trim(); if (n && n !== c.name) run(() => api.updateConnection(c.id, { name: n }), "Renamed.").then(() => setName(null)); }}>
+          <span>Name <span className="block text-[12px] text-ink-3">Agents keep their access; tool names use the id <span className="font-mono">{c.id}</span></span></span>
+          <span className="flex items-center gap-2">
+            <input value={name ?? c.name} onChange={(e) => setName(e.target.value)} maxLength={40} aria-label="Connection name" className="field !h-[34px] w-[220px]" />
+            <button type="submit" disabled={busy || name === null || !name.trim() || name.trim() === c.name} className="bt bt-primary">Save</button>
+          </span>
+        </form>
         <div className="kv"><span>Server</span><span className="font-mono text-[12px] break-all">{c.url}</span></div>
         <div className="kv"><span>Sign-in</span><span>{AUTH_LABEL[c.auth]}</span></div>
         <div className="kv">
