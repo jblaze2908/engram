@@ -28,7 +28,7 @@ export const ENGRAM: Actor = { id: null, name: "engram" };
 export const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 // 12 chars keeps mcp__engram__<conn>__ short enough that most tool names fit the 64-char client limit unshortened.
 export const CONN_ID = /^[a-z0-9][a-z0-9-]{0,11}$/;
-/** Secret name flagging a connection whose sign-in you paste back (see LOOPBACK in upstream.ts); disconnect drops it. */
+/** Secret flagging a connection whose sign-in you paste back: an https callback, or "1" for LOOPBACK (upstream.ts); disconnect drops it. */
 export const PASTE_BACK = (id: string) => `conn:${id}:loopback`;
 export const TOOL_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
 

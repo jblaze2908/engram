@@ -260,14 +260,14 @@ function PasteBack({ c, busy, onStart, onDone }: { c: ConnectionDetail; busy: bo
 
   return (
     <div className="flex flex-col gap-3 text-[13px]">
-      <p className="text-ink-2">{c.name} only sends sign-ins back to apps on your own computer, so this one ends on a page that won’t load. That’s expected: copy that page’s address and paste it here.</p>
+      <p className="text-ink-2">{c.name} won’t send sign-ins back to Engram, so this one ends on another page, which may not load. That’s expected: copy that page’s address and paste it here.</p>
       <div className="flex gap-2 flex-wrap">
         {url
           ? <><a className="bt bt-primary" href={url} target="_blank" rel="noopener noreferrer">Open {c.name} sign-in</a><Btn kind="quiet" disabled={busy} onClick={onStart}>New link</Btn></>
           : <Btn kind="primary" disabled={busy} onClick={onStart}>Start sign-in</Btn>}
       </div>
       <form className="flex gap-2 flex-wrap" onSubmit={finish}>
-        <input value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="http://127.0.0.1/engram/oauth/callback?code=…" aria-label="Address the sign-in ended on"
+        <input value={pasted} onChange={(e) => setPasted(e.target.value)} placeholder="Address the sign-in ended on (…?code=…)" aria-label="Address the sign-in ended on"
           autoComplete="off" spellCheck={false} className="field flex-1 min-w-[220px] font-mono text-[12.5px]" />
         <button type="submit" disabled={sending || !pasted.trim()} className="bt">{sending ? "Finishing…" : "Finish sign-in"}</button>
       </form>

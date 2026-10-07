@@ -18,6 +18,9 @@ export const REDIRECT = `${ENGRAM_URL}/api/connections/oauth/callback`;
 // For servers that only send sign-ins back to apps on your own computer (Canva). The browser ends on this unreachable
 // address and you paste it into Engram; its code is useless without the PKCE verifier, which never leaves the server.
 export const LOOPBACK = "http://127.0.0.1/engram/oauth/callback";
+// Servers that check the callback only after you sign in, so the Connect probe can't see the refusal. Each gets a
+// callback already on its allowlist that keeps the code in the address bar (Postman's is a static page).
+const PASTE_BACK_VIA: Record<string, string> = { "mcp-server.zomato.com": "https://oauth.pstmn.io/v1/callback" };
 const STATE_TTL = 10 * 60_000;
 const REFRESH_EVERY = 6 * 3600_000;
 const sec = (id: string, k: string) => `conn:${id}:${k}`;
@@ -26,7 +29,10 @@ const sec = (id: string, k: string) => `conn:${id}:${k}`;
 class Provider implements OAuthClientProvider {
   authUrl: URL | null = null;
   readonly redirectUrl: string;
-  constructor(private id: string, private session: string | null) { this.redirectUrl = getSecret(PASTE_BACK(id)) ? LOOPBACK : REDIRECT; }
+  constructor(private id: string, private session: string | null) {
+    const via = getSecret(PASTE_BACK(id));
+    this.redirectUrl = !via ? REDIRECT : via.startsWith("https://") ? via : LOOPBACK;
+  }
   get clientMetadata(): OAuthClientMetadata {
     return { client_name: "Engram", redirect_uris: [this.redirectUrl], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
   }
@@ -155,6 +161,8 @@ export async function connect(id: string, session: string): Promise<string | nul
 /** Discovery and registration; null when tokens already work. A server that refuses Engram's callback address gets
  *  registered again with LOOPBACK, once: after that the connection stays paste-back until it is disconnected. */
 async function authorizeUrl(c: ConnRow, session: string): Promise<URL | null> {
+  const via = PASTE_BACK_VIA[new URL(c.url).hostname];
+  if (via && !getSecret(PASTE_BACK(c.id))) { new Provider(c.id, session).invalidateCredentials("all"); putSecret(PASTE_BACK(c.id), via); }
   for (;;) {
     const p = new Provider(c.id, session);
     if ((await auth(p, { serverUrl: c.url, fetchFn: safeFetch })) !== "REDIRECT") return null;
