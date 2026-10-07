@@ -17,6 +17,10 @@ const CURATED = (curated as Omit<CatalogEntry, "source">[]).map((e): CatalogEntr
 // Read per call so tests can point it at a local mock.
 const registry = () => (process.env.ENGRAM_REGISTRY_URL || "https://registry.modelcontextprotocol.io").replace(/\/+$/, "");
 const same = (u: string) => { try { const x = new URL(u); return x.origin + x.pathname.replace(/\/+$/, ""); } catch { return u; } };
+// "com.zomato/mcp" says nothing past the publisher: name it after the publisher ("Zomato") instead.
+const GENERIC = /^(mcp|server|mcp-server|remote)$/i;
+const label = (n: string) => { const [ns, leaf] = n.split("/"); return !leaf || GENERIC.test(leaf) ? ns.split(".").pop() || n : leaf; };
+const readable = (n: string) => { const l = label(n); return l === n.split("/").pop() ? n : l.charAt(0).toUpperCase() + l.slice(1); };
 const clip = (s: unknown, n: number) => (typeof s === "string" ? s.replace(/\s+/g, " ").trim().slice(0, n) : "");
 
 // No templated URLs ({tenant}); scheme and literal-address rules as for a connection, re-checked when you add it.
@@ -39,7 +43,7 @@ function fromRegistry(list: Listed[]): CatalogEntry[] {
     const bearer = (r.headers || []).some((h) => h.isRequired && /^authorization$/i.test(h.name || ""));
     const icon = s.icons?.find((i) => typeof i.src === "string" && /^https:\/\//.test(i.src))?.src;
     out.push({
-      id: slugify(s.title || s.name.split("/").pop() || s.name).slice(0, 12).replace(/-+$/, ""), name: clip(s.title || s.name, 80),
+      id: slugify(s.title || label(s.name)).slice(0, 12).replace(/-+$/, ""), name: clip(s.title || readable(s.name), 80),
       description: clip(s.description, 200), url: r.url!, auth: bearer ? "bearer" : "oauth", dcr: null, untrusted: true,
       publisher: s.name.slice(0, 200), docs: typeof s.websiteUrl === "string" && /^https:\/\//.test(s.websiteUrl) ? s.websiteUrl.slice(0, 500) : null, tokenHelp: null, icon: icon?.slice(0, 500) ?? null, source: "registry",
     });

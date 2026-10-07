@@ -27,6 +27,7 @@ before(async () => {
     entry("io.github/github", remote("https://api.githubcopilot.com/mcp/")),
     entry("io.example/git-gone", remote("https://gone.example.com/mcp"), "deleted"),
     entry("io.example/weather", remote("https://weather.example.com/mcp")),
+    entry("com.acme/mcp", remote("https://mcp.acme.example.com/mcp")),
   ];
   reg = createServer((rq, rs) => {
     const u = new URL(rq.url, "http://x");
@@ -55,7 +56,7 @@ test("no query: the curated list only, nothing fetched", async () => {
 });
 
 test("the registry is synced in pages, then searched locally with no request per query", async () => {
-  assert.equal(await refreshRegistry(true), 4, "gitnotes, gitkeys, github, weather survive the filters (curated duplicates drop at search time)");
+  assert.equal(await refreshRegistry(true), 5, "gitnotes, gitkeys, github, weather, acme survive the filters (curated duplicates drop at search time)");
   assert.deepEqual(hits, ["/v0.1/servers?limit=100&version=latest", "/v0.1/servers?limit=100&version=latest&cursor=p2"]);
   const list = await search("git");
   assert.equal(list[0].source, "curated");
@@ -65,6 +66,7 @@ test("the registry is synced in pages, then searched locally with no request per
   assert.equal(r.find((e) => e.name === "io.example/gitkeys").auth, "bearer");
   assert.ok(r.every((e) => e.untrusted && e.dcr === null));
   assert.deepEqual((await search("weather")).map((e) => e.name), ["io.example/weather"]);
+  assert.deepEqual((await search("acme")).map((e) => [e.name, e.id]), [["Acme", "acme"]], "a bare /mcp leaf is named after its publisher");
   await search("  GIT ");
   assert.equal(hits.length, 2, "searching never calls the registry");
   assert.ok((await search("git", false)).every((e) => e.source === "curated"), "community servers only when asked for");

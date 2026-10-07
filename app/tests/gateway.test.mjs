@@ -45,6 +45,11 @@ test("bearer: connect lists tools, infers kinds, keeps the token encrypted", asy
   const kindOverride = await req("PATCH", "/api/connections/github/tools/get_big", { kind: "write" }, { cookie });
   assert.equal(kindOverride.json.connection.tools.find((t) => t.name === "get_big").kind, "write");
   await req("PATCH", "/api/connections/github/tools/get_big", { kind: null }, { cookie });
+  const renamed = await req("PATCH", "/api/connections/github", { name: "  Work GitHub " }, { cookie });
+  assert.equal(renamed.json.connection.name, "Work GitHub");
+  assert.equal(renamed.json.connection.id, "github", "the id, and so every tool name, stays");
+  assert.equal((await req("PATCH", "/api/connections/github", { name: " " }, { cookie })).status, 400);
+  await req("PATCH", "/api/connections/github", { name: "GitHub" }, { cookie });
 });
 
 test("granted tools only, as <conn>__<tool>; search finds them by need", async () => {

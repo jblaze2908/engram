@@ -65,10 +65,12 @@ export const gateway = new Hono()
   })
   .get("/api/connections/:id", you, (c) => c.json(G.connectionDetail(cid(c))))
   .patch("/api/connections/:id", you, async (c) => {
-    const id = cid(c), b = await body(c, z.object({ untrusted: z.boolean().optional(), token: secret.optional() }));
+    // Renaming keeps the id, so tool names (mcp__engram__<id>__…) and every grant stay as they are.
+    const id = cid(c), b = await body(c, z.object({ name: z.string().trim().min(1).max(40).optional(), untrusted: z.boolean().optional(), token: secret.optional() }));
+    if (b.name !== undefined) run("UPDATE connections SET name=? WHERE id=?", b.name, id);
     if (b.untrusted !== undefined) run("UPDATE connections SET untrusted=? WHERE id=?", b.untrusted ? 1 : 0, id);
     if (b.token) { if (G.connRow(id)!.auth !== "bearer") throw httpErr(400, "Only a bearer connection takes a token"); U.saveCredentials(id, { token: b.token }); await U.closeClient(id); }
-    trace(YOU, "connection.update", id, "ok", null, [b.untrusted !== undefined ? `untrusted=${b.untrusted}` : "", b.token ? "new token" : ""].filter(Boolean).join(", ") || null);
+    trace(YOU, "connection.update", id, "ok", null, [b.name !== undefined ? "renamed" : "", b.untrusted !== undefined ? `untrusted=${b.untrusted}` : "", b.token ? "new token" : ""].filter(Boolean).join(", ") || null);
     return c.json(b.token ? await connectOrState(c, id) : result(id, null));
   })
   .post("/api/connections/:id/connect", you, async (c) => c.json(await connectOrState(c, cid(c))))
