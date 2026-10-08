@@ -7,7 +7,8 @@ export const ROOT = resolve(process.env.ENGRAM_ROOT || "./.data");
 export const VAULT = join(ROOT, "vault");
 export const PENDING = join(ROOT, "pending");
 export const PORT = Number(process.env.PORT || 8340);
-export const HOST = process.env.ENGRAM_HOST || "engram.example.com";
+// Public hostname of this instance; OAuth issuer, MCP origin checks and links build on it.
+export const HOST = process.env.ENGRAM_HOST || "localhost";
 mkdirSync(ROOT, { recursive: true, mode: 0o700 });
 mkdirSync(PENDING, { recursive: true, mode: 0o700 });
 

@@ -1,4 +1,4 @@
-// The artifacts host (artifacts.example.com): serves published files, nothing else. Its own container sees only
+// The artifacts host (ENGRAM_ARTIFACTS_HOST): serves published files, nothing else. Its own container sees only
 // the vault's artifacts folder and the manifest + view key engram-app writes; no DB, no master key, no secrets in env.
 //   /<slug>   the artifact's one link: anyone when it's public; else a view token from Engram (?t=, then a cookie for
 //             12 h), else back to Engram to sign in
@@ -118,6 +118,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   createArtifactsServer({
     files: process.env.ENGRAM_ARTIFACTS_FILES || "/srv/engram/vault/artifacts/files",
     serve: process.env.ENGRAM_ARTIFACTS_SERVE || "/srv/engram/artifacts-serve",
-    engramHost: process.env.ENGRAM_HOST || "engram.example.com",
+    engramHost: process.env.ENGRAM_HOST || "localhost",
   }).listen(port, () => console.log(`engram artifacts on :${port} (${ARTIFACTS_HOST})`));
 }

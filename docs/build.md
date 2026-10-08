@@ -1,6 +1,5 @@
 # Engram v0.1 — build plan
 
-Spec of record: Obsidian `Projects/Engram/Engram - Spec.md`. Designs: Draft canvas `kbyr_xhuW7`, system C1.
 This first cut is milestone **M1** (profile + memories + search + inbox, one MCP endpoint) with every screen
 built. The gateway (upstream OAuth, M2), Pitcrew migration (M3), digest delivery (M4), skills for agents (M5)
 and Code Mode (M6) come later; their screens show an honest empty state.
@@ -11,7 +10,7 @@ and Code Mode (M6) come later; their screens show an honest empty state.
 - `app/shared/types.ts` the API contract. Change it here first.
 - `app/web/` React 19 + Vite 8 + Tailwind 4 web app, built into `app/dist/web`, served by the server at `/`.
 - `app/tests/*.test.mjs` node:test against `app/dist/src/*.js`; they also run in the Docker build, so a failure blocks the deploy.
-- `deploy/` pull-based deploy on the host, same shape as Pitcrew.
+- `deploy/` pull-based deploy on one Docker host: a systemd timer pulls `main`, builds, health-checks, rolls back.
 
 ## Data
 

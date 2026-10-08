@@ -2,7 +2,8 @@
 // effects and no imports beyond node builtins, so the serving container never loads the app's config, DB or keys.
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-export const ARTIFACTS_HOST = process.env.ENGRAM_ARTIFACTS_HOST || "artifacts.example.com";
+// A separate origin, so a published page can never read Engram's cookies.
+export const ARTIFACTS_HOST = process.env.ENGRAM_ARTIFACTS_HOST || `artifacts.${process.env.ENGRAM_HOST || "localhost"}`;
 export const MAX_FILE = 10 << 20;
 export const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 export const SHA_RE = /^[a-f0-9]{64}$/;

@@ -11,7 +11,7 @@ import { ToolPicker } from "../components/ToolPicker";
 import { BackLink, Btn, Card, CardHead, cx, Dot, Empty, ErrorNote, H1, Lede, LinkBtn, ListPane, Loading, Main, Split, Toggle } from "../components/ui";
 import { LinkPitcrew, LinkReveal } from "./LinkPitcrew";
 
-export const MCP_URL = "https://engram.example.com/mcp";
+export const MCP_URL = `${location.origin}/mcp`;
 
 const SCOPE_HINT: Record<Scope, string> = {
   personal: "Home, travel, preferences, people",

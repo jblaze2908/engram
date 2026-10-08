@@ -1,4 +1,8 @@
 // The public privacy policy Google's consent screen links to (required to publish the OAuth app). Static, no auth.
+// Google OAuth verification needs a public privacy page; ENGRAM_OWNER_NAME names who runs this instance.
+const esc = (v: string) => v.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+const OWNER = esc(process.env.ENGRAM_OWNER_NAME?.trim() || "its owner");
+
 export const PRIVACY_HTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Engram privacy policy</title>
@@ -10,21 +14,21 @@ main{max-width:680px;margin:0 auto;padding:48px 16px}
 h1{font-size:28px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px}p,li{color:var(--ink)}.muted{color:var(--muted)}
 </style></head><body><main>
 <h1>Engram privacy policy</h1>
-<p class="muted">Last updated 2 October 2026</p>
+<p class="muted">Last updated 8 October 2026</p>
 
 <h2>What Engram is</h2>
-<p>Engram is a personal, single-user application that Jaivardhan Singh runs on his own server for his own use. It is not offered to anyone else, and no one else can sign in to it.</p>
+<p>Engram is a personal, single-user application that ${OWNER} runs on their own server for their own use. It is not offered to anyone else, and no one else can sign in to it.</p>
 
 <h2>Google data it uses</h2>
-<p>Only after the owner signs in with his own Google account, Engram can:</p>
+<p>Only after the owner signs in with their own Google account, Engram can:</p>
 <ul>
-<li>search and read his Gmail messages, and create drafts (it never sends mail);</li>
-<li>read his Google Calendar events and free/busy times;</li>
-<li>search and read his Google Drive files.</li>
+<li>search and read their Gmail messages, and create drafts (it never sends mail);</li>
+<li>read their Google Calendar events and free/busy times;</li>
+<li>search and read their Google Drive files.</li>
 </ul>
 
 <h2>How it is used</h2>
-<p>Engram passes this data, on request, to the AI agents the owner runs for himself, so they can answer his questions and prepare drafts for him. Each agent is limited to the tools the owner grants it, and every call is recorded in Engram's own log. To do that work, the content an agent reads is processed by the AI model provider the owner has chosen for that agent.</p>
+<p>Engram passes this data, on request, to the AI agents the owner runs for themselves, so they can answer the owner's questions and prepare drafts. Each agent is limited to the tools the owner grants it, and every call is recorded in Engram's own log. To do that work, the content an agent reads is processed by the AI model provider the owner has chosen for that agent.</p>
 
 <h2>What is stored</h2>
 <p>Google sign-in tokens are stored encrypted on the owner's server. Engram does not keep copies of mail, events or files; a fact is saved only when the owner chooses to keep it. Call logs keep the tool name and redacted arguments, not message contents.</p>

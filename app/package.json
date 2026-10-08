@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Engram: one self-hosted app that knows how Jai operates and is the single door every agent uses for context.",
+  "description": "Engram: a self-hosted memory, context and MCP gateway that every agent you use goes through.",
   "scripts": {
     "build": "npm run build:server && npm run build:web",
     "build:server": "tsc -p tsconfig.json",

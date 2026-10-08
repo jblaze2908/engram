@@ -1,4 +1,6 @@
-# Engram on the host. The image tag comes from the release env written by deploy/pull-update.sh (one tag per commit).
+# Engram on one Docker host. The image tag comes from the release env written by deploy/pull-update.sh (one tag per
+# commit). Instance config lives outside the repo in ${ENGRAM_CONFIG_DIR:-/etc/engram}: hosts.env (public, both
+# containers) and engram.env (secrets, app only). See .env.example.
 name: engram
 services:
   app:
@@ -18,11 +20,9 @@ services:
     volumes:
       # Vault (markdown + git), SQLite index, master key. Only this directory is writable.
       - /srv/engram:/srv/engram
-    # Root-only on the host: ntfy publish token, vault remote, public URL.
-    env_file: [/etc/engram/engram.env]
+    # engram.env is root-only on the host: ntfy publish token, vault remote, provider keys.
+    env_file: ["${ENGRAM_CONFIG_DIR:-/etc/engram}/hosts.env", "${ENGRAM_CONFIG_DIR:-/etc/engram}/engram.env"]
     environment:
-      ENGRAM_HOST: engram.example.com
-      ENGRAM_ARTIFACTS_HOST: artifacts.example.com
       HOME: /srv/engram/home
     logging:
       driver: json-file
@@ -46,10 +46,9 @@ services:
     volumes:
       - /srv/engram/vault/artifacts:/srv/engram/vault/artifacts:ro
       - /srv/engram/artifacts-serve:/srv/engram/artifacts-serve:ro
+    env_file: ["${ENGRAM_CONFIG_DIR:-/etc/engram}/hosts.env"]
     environment:
       ARTIFACTS_PORT: "8345"
-      ENGRAM_HOST: engram.example.com
-      ENGRAM_ARTIFACTS_HOST: artifacts.example.com
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8345/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

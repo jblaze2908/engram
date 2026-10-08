@@ -1,4 +1,4 @@
-base-url: "https://ntfy.example.com"
+base-url: "https://ntfy.example.com"  # your ntfy hostname
 listen-http: ":80"
 behind-proxy: true
 auth-file: "/var/lib/ntfy/user.db"

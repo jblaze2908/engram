@@ -2,11 +2,14 @@
 set -Eeuo pipefail
 
 # Nightly off-site backup: the vault (markdown + its git history) and a VACUUM INTO copy of engram.db, encrypted by
-# restic and sent to Google Drive through rclone (Tijori's tijori-drive remote, a separate repository). master.key is
-# not in here on purpose: it lives in the password manager. Run by deploy/engram-backup.timer.
+# restic to RESTIC_REPOSITORY (any restic backend; an rclone remote works). master.key is not in here on purpose:
+# keep it in a password manager. Run by deploy/engram-backup.timer.
 DATA="${ENGRAM_DATA:-/srv/engram}"
 ENV_FILE="${ENGRAM_ENV_FILE:-/etc/engram/engram.env}"
-export RESTIC_REPOSITORY="${RESTIC_REPOSITORY:-rclone:tijori-drive:engram-backup}"
+cfg() { [[ -f "$ENV_FILE" ]] && sed -n "s/^$1=//p" "$ENV_FILE" | tail -1; }
+export RESTIC_REPOSITORY="${RESTIC_REPOSITORY:-$(cfg RESTIC_REPOSITORY)}"
+[[ -n "$RESTIC_REPOSITORY" ]] || { echo "set RESTIC_REPOSITORY in the environment or $ENV_FILE" >&2; exit 1; }
+TAG_HOST="${RESTIC_HOST:-$(hostname)}"
 export RESTIC_PASSWORD_FILE="${RESTIC_PASSWORD_FILE:-/etc/engram/restic.pass}"
 SNAP="$DATA/backups/nightly.db"
 MARKER="$DATA/backups/last-backup"   # epoch ms of the last good run; Engram's Status shows it
@@ -29,15 +32,15 @@ docker exec engram-app node -e "$NODE_DB('$DATA/engram.db').exec(\"VACUUM INTO '
 docker exec engram-app node -e "const r = $NODE_DB('$SNAP', { readOnly: true }).prepare('PRAGMA integrity_check').get(); process.exit(Object.values(r)[0] === 'ok' ? 0 : 1)"
 
 restic cat config >/dev/null 2>&1 || restic init
-restic backup --host host --tag engram "$SNAP" "$DATA/vault"
-restic forget --host host --tag engram --keep-daily 7 --keep-weekly 4 --keep-monthly 12 --prune
+restic backup --host "$TAG_HOST" --tag engram "$SNAP" "$DATA/vault"
+restic forget --host "$TAG_HOST" --tag engram --keep-daily 7 --keep-weekly 4 --keep-monthly 12 --prune
 
 # On the 1st (or VERIFY=1): restore the latest snapshot and compare it with what was just sent. The DB copy must be
 # byte-identical, the vault's git must be sound with a clean tree, and its HEAD must be in the live history.
 if [[ "$(date +%d)" == "01" || "${VERIFY:-0}" == "1" ]]; then
   tmp="$(mktemp -d)"
   trap 'rm -rf "$tmp"' EXIT
-  restic restore latest --host host --tag engram --target "$tmp"
+  restic restore latest --host "$TAG_HOST" --tag engram --target "$tmp"
   cmp -s "$tmp$SNAP" "$SNAP" || { echo "restored engram.db differs from the snapshot" >&2; false; }
   vgit() { git -c safe.directory='*' -C "$1" "${@:2}"; }
   vgit "$tmp$DATA/vault" fsck --no-progress --no-dangling

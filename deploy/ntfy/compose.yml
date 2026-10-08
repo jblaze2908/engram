@@ -18,7 +18,7 @@ services:
       - ./server.yml:/etc/ntfy/server.yml:ro
       - /srv/ntfy:/var/lib/ntfy
     environment:
-      TZ: Asia/Kolkata
+      TZ: ${TZ:-UTC}
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }

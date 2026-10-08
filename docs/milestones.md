@@ -82,10 +82,10 @@ Dropped 2026-10-02 (see Batch 2): nothing is written to disk; skills reach clien
 
 ## Vault sync and backups (spec §9, §17)
 
-- The vault mirrors to a private GitHub repo `jblaze2908/engram-vault` (write deploy key on the host, `ENGRAM_VAULT_REMOTE`).
+- The vault mirrors to a private git repo (write deploy key on the host, `ENGRAM_VAULT_REMOTE`).
   After each commit (debounced 10 s) Engram pushes; every 60 s it fetches and fast-forwards/rebases your Obsidian edits,
   then reindexes. On a conflict it keeps both (the remote version saved as `<file>.conflict-<ts>.md`) and raises an inbox item.
-- Nightly restic backup of the vault + a `VACUUM INTO` copy of the DB to `rclone:tijori-drive:engram-backup`
+- Nightly restic backup of the vault + a `VACUUM INTO` copy of the DB to `RESTIC_REPOSITORY` (an rclone remote works)
   (password `/etc/engram/restic.pass`), keep 7 daily / 4 weekly / 12 monthly, monthly restore check. `deploy/backup.sh`.
 
 ## M6 — Code Mode (decision D6: measure first)
@@ -169,12 +169,11 @@ Receipts and statements from before are simply private artifacts now.
 
 ### On the internet (live 2026-10-02)
 
-Live at https://artifacts.example.com: DNS added by Jai, Traefik route applied (backup
-`dynamic_config.yml.bak-before-artifacts-20261002T165433Z`), Let's Encrypt cert issued on first request. Checked:
+DNS and a Traefik route added, Let's Encrypt cert issued on first request. Checked:
 MCP `publish` returned the link; without a session it redirects to engram's `/open`, which sends you to sign-in;
 an unknown slug is 404. How it was set up, for a rebuild:
 
-1. Cloudflare DNS: `A artifacts.example.com → 203.0.113.10` (the address engram, pitcrew and ntfy resolve to); match their proxy setting.
+1. Cloudflare DNS: `A artifacts.example.com → <your server>` (the address engram resolves to); match their proxy setting.
 2. Traefik, `/opt/sso-proxy/config/traefik/dynamic_config.yml` (back it up first, as for the other hosts):
 
    ```yaml
