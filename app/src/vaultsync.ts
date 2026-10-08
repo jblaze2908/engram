@@ -1,4 +1,4 @@
-// Mirrors the vault to a private git remote (ENGRAM_VAULT_REMOTE) so Obsidian on the Mac edits the same files: a
+// Mirrors the vault to a private git remote (ENGRAM_VAULT_REMOTE) so Obsidian on your computer edits the same files: a
 // push after commits (debounced 10 s), and every 60 s a fetch with Engram's commits rebased onto yours. A conflict keeps
 // both versions and lands in the inbox. Never force-pushes. All git runs under the vault writer lock except fetch.
 import { execFile } from "node:child_process";

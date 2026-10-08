@@ -5,7 +5,7 @@ export const TARGET_LABEL: Record<ProfileTarget, string> = {
   "crew-chief": "Crew Chief", "pitcrew-member": "Pitcrew members", "claude-code": "Claude Code", codex: "Codex",
 };
 export const TARGETS = Object.keys(TARGET_LABEL) as ProfileTarget[];
-export const AGENT_KIND_LABEL: Record<Agent["kind"], string> = { pitcrew: "Pitcrew member", mac: "On the Mac", other: "Other" };
+export const AGENT_KIND_LABEL: Record<Agent["kind"], string> = { pitcrew: "Pitcrew member", mac: "On your computer", other: "Other" };
 
 export const ARTIFACT_KIND_LABEL: Record<ArtifactKind, [string, string]> = {
   receipt: ["Receipt", "Receipts"], statement: ["Statement", "Statements"], report: ["Report", "Reports"],

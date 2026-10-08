@@ -32,7 +32,7 @@ const errMsg = (e: unknown) => { const err = e as HttpError; if (!err.status || 
 const slug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,59}$/);
 const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const when = z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})?)?$/);
-// A bare date is midnight on the server's clock (Asia/Kolkata in production), as the trace and journal days are.
+// A bare date is midnight on the server's clock (set TZ on the host), as the trace and journal days are.
 const toMs = (s: string) => (s.length === 10 ? new Date(`${s}T00:00:00`).getTime() : Date.parse(s));
 const Search = z.object({
   query: z.string().min(1).max(500), kind: z.enum([...SEARCHABLE, "tool"]).optional().describe("only this kind of record"), area: slug.optional(), project: slug.optional(),

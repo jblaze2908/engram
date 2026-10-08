@@ -163,7 +163,7 @@ export function googleServer(id: string) {
 
   s.registerTool("gmail_search", {
     description: "Search your Gmail with Gmail's own query syntax (from:, subject:, newer_than:7d, has:attachment …). Returns sender, subject, date and a snippet per message.",
-    inputSchema: z.object({ query: z.string().max(500).describe("Gmail search, e.g. \"from:bescom newer_than:30d\""), max: z.number().int().min(1).max(20).optional().describe("how many, default 10") }),
+    inputSchema: z.object({ query: z.string().max(500).describe("Gmail search, e.g. \"from:billing newer_than:30d\""), max: z.number().int().min(1).max(20).optional().describe("how many, default 10") }),
     annotations: ro,
   }, guard(id, S.gmailRead, async (a: { query: string; max?: number }) => {
     // Per call: one list plus one metadata read per message (at most 21 Google requests).

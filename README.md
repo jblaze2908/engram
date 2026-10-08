@@ -37,12 +37,17 @@ Open http://localhost:8340, paste the setup token from `.data/setup-token`, and 
 
 ## Self-host
 
-1. A Linux host with Docker, and two hostnames behind a TLS proxy: one for the app (`→ 172.17.0.1:8340`), one for
-   artifacts (`→ 172.17.0.1:8345`).
-2. Clone to `/opt/engram`. Create `/etc/engram/hosts.env` and `/etc/engram/engram.env` from `.env.example`.
-3. Install `deploy/engram.service` and `deploy/engram.timer` into systemd and enable the timer. Each push to `main`
-   deploys within about two minutes. Optional: `deploy/engram-backup.*` for backups, `deploy/ntfy` for pushes.
-4. Open your hostname and finish setup with the token from `/srv/engram/setup-token`.
+Any machine with Docker: a laptop, a home server, any VPS or cloud VM. In short:
+
+```sh
+docker build -t engram-app:1 app
+docker compose -p engram -f deploy/compose.yml up -d
+```
+
+with config in `/etc/engram/{hosts,engram}.env` (from `.env.example`) and a TLS proxy in front of the app and
+artifacts hosts. **[docs/deploy.md](docs/deploy.md)** covers it end to end: requirements, the two origins, Caddy,
+nginx and Traefik examples, agent tokens and OAuth, notifications, backups, updates, optional auto-deploy from git,
+troubleshooting.
 
 ## Connect an agent
 
@@ -56,7 +61,7 @@ ChatGPT and other clients that support MCP OAuth can connect with the URL alone.
 
 ## Docs
 
-`docs/build.md` (build plan and layout) and `docs/milestones.md` (what each milestone shipped).
+`docs/deploy.md` (deploying), `docs/build.md` (build plan and layout) and `docs/milestones.md` (what each milestone shipped).
 
 ## License
 

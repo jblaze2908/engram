@@ -8,7 +8,7 @@ v0.1 (M1) is live. This file is the contract for the rest; `app/shared/types.ts`
 - Artifact **Forget this file and its memories** (file stays in git history; record and derived memories → forgotten).
 - Skill proposal **Link to profile instead** = reject the edit and add a `see: profile/<file>` line to the skill.
 - Trace **Undo accept** = forget the accepted memory and restore the one it superseded to active.
-- **Open in Obsidian** links: `obsidian://open?vault=Engram&file=<vault path>` (the vault is cloned on the Mac as `~/Engram`, see Vault sync).
+- **Open in Obsidian** links: `obsidian://open?vault=Engram&file=<vault path>` (clone the vault on your computer and open it in Obsidian as the vault "Engram", see Vault sync).
 - `GET /api/memories?ids=a,b,c` batch read (Artifacts page uses it).
 
 ## M2 — gateway
@@ -174,7 +174,7 @@ MCP `publish` returned the link; without a session it redirects to engram's `/op
 an unknown slug is 404. How it was set up, for a rebuild:
 
 1. Cloudflare DNS: `A artifacts.example.com → <your server>` (the address engram resolves to); match their proxy setting.
-2. Traefik, `/opt/sso-proxy/config/traefik/dynamic_config.yml` (back it up first, as for the other hosts):
+2. Traefik, in your dynamic config file (back it up first):
 
    ```yaml
    # http.routers

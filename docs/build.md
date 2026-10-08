@@ -34,7 +34,7 @@ First boot seeds `areas/` with Home, Money, Health, Car, Travel, Building and em
 ## Auth
 
 - Web: one password (scrypt), sessions as random tokens stored hashed, httpOnly SameSite=Strict cookie,
-  global login limiter — copy the pattern of Pitcrew's `app/src/auth.ts`. First run needs the setup token from
+  global login limiter. First run needs the setup token from
   `ENGRAM_ROOT/setup-token`.
 - Agents: `Authorization: Bearer eg_<43 base64url chars>`. Stored as sha256 only; prefix kept for display.
   Revocable. One token per agent. Same-origin + CSRF header (`x-engram: 1`) on cookie-authed mutations.

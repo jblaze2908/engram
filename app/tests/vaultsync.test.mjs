@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-// A local bare repo stands in for GitHub; a clone of it stands in for Obsidian on the Mac.
+// A local bare repo stands in for GitHub; a clone of it stands in for Obsidian on your computer.
 const BARE = mkdtempSync(join(tmpdir(), "engram-bare-")), OBS = mkdtempSync(join(tmpdir(), "engram-obs-"));
 execFileSync("git", ["init", "-q", "--bare", "-b", "main", BARE]);
 process.env.ENGRAM_VAULT_REMOTE = `file://${BARE}`;

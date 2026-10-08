@@ -57,7 +57,7 @@ export function Agents({ id }: { id?: string }) {
 
   const groups: [string, Agent[]][] = [
     ["Pitcrew", list.filter((a) => a.kind === "pitcrew")],
-    ["On the Mac", list.filter((a) => a.kind === "mac")],
+    ["On your computer", list.filter((a) => a.kind === "mac")],
     ["Connected apps", list.filter((a) => appOf(a))],
     ["Other", list.filter((a) => a.kind === "other" && !appOf(a))],
   ];
@@ -99,7 +99,7 @@ export function Agents({ id }: { id?: string }) {
             </>
           ) : load.data ? (
             <Empty title={id ? "That agent isn’t here." : "No agents yet."}>
-              An agent is anything that talks to Engram over MCP: a Pitcrew member, Claude Code or Codex on the Mac. <a className="text-data hover:underline" href="#/agents/new">Add an agent</a>.
+              An agent is anything that talks to Engram over MCP: Claude Code, Codex, ChatGPT or a bot of your own. <a className="text-data hover:underline" href="#/agents/new">Add an agent</a>.
             </Empty>
           ) : null}
         </Main>
@@ -291,7 +291,7 @@ function NewAgentForm({ onCreated }: { onCreated: (t: NewToken) => void }) {
             if (k === "pitcrew") setProfile("pitcrew-member");
           }} className="field">
             <option value="pitcrew">Pitcrew member</option>
-            <option value="mac">On the Mac</option>
+            <option value="mac">On your computer</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -342,7 +342,7 @@ function TokenReveal({ t, fresh, onDone }: { t: NewToken; fresh?: boolean; onDon
         </div>
         {t.agent.kind === "mac" && (
           <div>
-            <p className="text-[12.5px] text-ink-3 mb-1.5">For Claude Code, run this once on the Mac</p>
+            <p className="text-[12.5px] text-ink-3 mb-1.5">For Claude Code, run this once on your computer</p>
             <div className="flex items-start gap-2">
               <code className="flex-1 min-w-0 rounded-[10px] bg-surface-2 px-3 py-2.5 font-mono text-[12px] break-all">{cmd}</code>
               <Btn onClick={() => copy("cmd", cmd)}>{copied === "cmd" ? "Copied" : "Copy"}</Btn>
