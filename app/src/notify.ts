@@ -1,9 +1,8 @@
 // Push notifications through ntfy (M4). One line each, and never memory text from finance, health or private scope.
 // A no-op unless ENGRAM_NTFY_URL is set; the token only ever goes in the Authorization header.
 import type { Digest, Scope } from "../shared/types.js";
-import { HOST, now, DAY } from "./config.js";
+import { HOST, now, DAY, dayKey } from "./config.js";
 import { one, all, getSetting, setSetting } from "./db.js";
-import { istDay } from "./digest.js";
 
 const URL_ = process.env.ENGRAM_NTFY_URL || "";
 const TOKEN = process.env.ENGRAM_NTFY_TOKEN || "";
@@ -79,10 +78,10 @@ export const notifyDigest = (d: Digest) => send({
 
 /** Once a day: memories whose valid_until is three days out. */
 export function runningOutCheck(t = now()) {
-  const today = istDay(t);
+  const today = dayKey(t);
   if (!enabled() || getSetting("notify_runout_day") === today) return Promise.resolve();
   setSetting("notify_runout_day", today);
-  const rows = all<{ scope: Scope; data: string }>("SELECT scope, data FROM docs WHERE kind='memory' AND status='active' AND valid_until=?", istDay(t + 3 * DAY));
+  const rows = all<{ scope: Scope; data: string }>("SELECT scope, data FROM docs WHERE kind='memory' AND status='active' AND valid_until=?", dayKey(t + 3 * DAY));
   if (!rows.length) return Promise.resolve();
   const text = rows.length === 1
     ? `Runs out in 3 days: ${safeTitle(rows[0].scope, "memory", (JSON.parse(rows[0].data) as { text: string }).text)}`

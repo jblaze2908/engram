@@ -69,7 +69,7 @@ skills from `/link/sync` are written into each member's Codex skills dir at thre
 
 ## M4 — bringing things back
 
-- Digest built Sundays 19:00 IST (and on demand): waiting items, running out (30 days), what changed, open loops
+- Digest built Sundays 19:00 local time (and on demand): waiting items, running out (30 days), what changed, open loops
   (open projects + memories marked `loop`), the week's journal grouped by day. Stored as `vault/digests/YYYY-Www.md`.
 - Notifications through ntfy (`ENGRAM_NTFY_URL`, `ENGRAM_NTFY_TOKEN` from `/etc/engram/engram.env`): a new held
   proposal (batched, at most one per 10 min), a tool description change, the weekly digest, a memory running out in

@@ -2,15 +2,14 @@
 // memories whose valid_until has passed. It only proposes; the inbox decides. Model: the local embedding model finds
 // candidate pairs, a lexical judge decides, and anything it can't call cleanly is left alone.
 import type { Proposal, Scope, Source } from "../shared/types.js";
-import { now, uid, norm, httpErr } from "./config.js";
+import { now, uid, norm, httpErr, dayKey } from "./config.js";
 import { one, all, run, json, getSetting, setSetting } from "./db.js";
 import { loadModel, dot, MODEL_DIR } from "./embed.js";
-import { istDay } from "./digest.js";
 import { readDoc, writeDoc } from "./vault.js";
 import { docById } from "./store.js";
 import { trace, type Actor } from "./trace.js";
 
-export const DREAM_HOUR_IST = 3;
+export const DREAM_HOUR = 3;
 // Per night: fresh memories examined, proposals made. Whatever is left waits behind the watermark for tomorrow.
 export const BATCH = 200, MAX_PROPOSALS = 20;
 // potion-base-8M cosine: the gate-code contradiction pair measured 0.705, unrelated memories under 0.2.
@@ -112,7 +111,7 @@ export function dream(o: { t?: number; batch?: number; max?: number } = {}): Dre
     console.log(`dream: no embedding model in ${MODEL_DIR}; nothing done (set ENGRAM_MODEL_DIR or run scripts/fetch-model.sh)`);
     return { skipped: "no embedding model", scanned: 0, expired: 0, proposed: 0, more: false };
   }
-  const today = istDay(t), wm: Mark = { mtime: 0, id: "", day: "", ...json<Partial<Mark>>(getSetting("dream_watermark"), {}) };
+  const today = dayKey(t), wm: Mark = { mtime: 0, id: "", day: "", ...json<Partial<Mark>>(getSetting("dream_watermark"), {}) };
   const h = history();
   let proposed = 0, expired = 0, more = false;
 
@@ -164,10 +163,10 @@ export function dream(o: { t?: number; batch?: number; max?: number } = {}): Dre
   return { skipped: null, scanned, expired, proposed, more };
 }
 
-/** From the minute job: once per IST day, from DREAM_HOUR_IST on. */
+/** From the minute job: once per local day, from DREAM_HOUR on. */
 export function dreamCheck(t = now()) {
-  if (new Date(t + 330 * 60000).getUTCHours() < DREAM_HOUR_IST || getSetting("dream_day") === istDay(t)) return null;
-  setSetting("dream_day", istDay(t));
+  if (new Date(t).getHours() < DREAM_HOUR || getSetting("dream_day") === dayKey(t)) return null;
+  setSetting("dream_day", dayKey(t));
   return dream({ t });
 }
 

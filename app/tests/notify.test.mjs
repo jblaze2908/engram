@@ -68,7 +68,7 @@ test("weekly digest and running-out notifications carry counts and personal titl
   assert.match(got[3].body, /^Your week in Engram: \d+ waiting, \d+ running out, \d+ open loops$/);
   assert.match(got[3].headers.click, /^https:\/\/engram\.example\/#\/digest\?week=\d{4}-W\d{2}$/);
 
-  const soon = D.istDay(Date.now() + 3 * 86400000);
+  const soon = (await import("../dist/src/config.js")).dayKey(Date.now() + 3 * 86400000);
   await req("POST", "/api/memories", { text: "Passport photo appointment", area: "travel", scope: "personal", valid_until: soon }, { cookie });
   await N.runningOutCheck();
   assert.equal(await arrived(5), 5);

@@ -16,6 +16,14 @@ export const now = () => Date.now();
 export const uid = (p: string) => `${p}_${randomBytes(9).toString("base64url")}`;
 export const DAY = 86400000;
 export const startOfDay = (t = now()) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
+/** Zone name for messages ("IST", "EDT"); the IANA name when the locale only offers "GMT+5:30". Days and hours follow TZ. */
+export const tzLabel = (() => {
+  for (const loc of ["en-US", "en-IN", "en-GB"]) {
+    const s = new Intl.DateTimeFormat(loc, { timeZoneName: "short" }).formatToParts(now()).find((x) => x.type === "timeZoneName")?.value || "";
+    if (s && !/^(GMT|UTC)[+-]/.test(s)) return s;
+  }
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+})();
 export const dayKey = (t: number) => { const d = new Date(t); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 export const slugify = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "untitled";
 // Dedupe and the recall check compare claims by this, so case, spacing and a trailing full stop don't make a new memory.

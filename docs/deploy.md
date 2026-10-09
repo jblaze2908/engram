@@ -15,7 +15,7 @@ instance, one owner, as many agents as you like.
 Instance config lives outside the repo, by default in `/etc/engram` (set `ENGRAM_CONFIG_DIR` to move it). Copy
 `.env.example` and split it in two:
 
-- `/etc/engram/hosts.env`: `ENGRAM_HOST`, `ENGRAM_ARTIFACTS_HOST`, `ENGRAM_OWNER_NAME`, and `TZ` if the server's
+- `/etc/engram/hosts.env`: `ENGRAM_HOST`, `ENGRAM_ARTIFACTS_HOST`, `ENGRAM_OWNER_NAME`, and `TZ` (digest, briefs and the nightly pass run on it) if the server's
   timezone isn't yours (journal days and bare dates follow it). Public values; both containers read it.
 - `/etc/engram/engram.env`: everything else (vault remote, ntfy, backups). `chmod 600`. Only the app container reads it.
 

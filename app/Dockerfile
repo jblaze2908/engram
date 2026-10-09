@@ -25,7 +25,7 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/model ./model
-ENV ENGRAM_MODEL_DIR=/app/model NODE_ENV=production TZ=Asia/Kolkata PORT=8340 ENGRAM_ROOT=/srv/engram NODE_OPTIONS=--disable-warning=ExperimentalWarning
+ENV ENGRAM_MODEL_DIR=/app/model NODE_ENV=production PORT=8340 ENGRAM_ROOT=/srv/engram NODE_OPTIONS=--disable-warning=ExperimentalWarning
 EXPOSE 8340
 HEALTHCHECK --interval=30s --timeout=5s CMD node -e "fetch('http://127.0.0.1:8340/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "dist/src/server.js"]

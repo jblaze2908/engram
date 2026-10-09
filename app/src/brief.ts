@@ -1,7 +1,7 @@
 // People briefs (spec §11): before a calendar event with someone Engram knows, a private artifact with what it knows
 // about them, and one ntfy push. Runs from the minute job but asks Google at most every 10 minutes (one request each).
 import type { Scope } from "../shared/types.js";
-import { now, DAY } from "./config.js";
+import { now, DAY, tzLabel } from "./config.js";
 import { db, all, one, run, getSetting, setSetting } from "./db.js";
 import { entityView } from "./views.js";
 import { publish } from "./artifacts/app.js";
@@ -26,10 +26,10 @@ export function peopleIn(e: UpcomingEvent, list = people()): Person[] {
   return list.filter((p) => p.tokens.every((t) => hay.has(t)));
 }
 
-const time = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Kolkata" });
+const time = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 
 export function briefText(e: UpcomingEvent, who: Person[]) {
-  const out = [`# Before: ${e.summary || "a meeting"}`, "", `${time(e.start)} IST${e.location ? ` · ${e.location}` : ""}`];
+  const out = [`# Before: ${e.summary || "a meeting"}`, "", `${time(e.start)} ${tzLabel}${e.location ? ` · ${e.location}` : ""}`];
   for (const p of who) {
     const v = entityView(p.id, ALL);
     if (!v) continue;

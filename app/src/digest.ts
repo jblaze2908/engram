@@ -1,46 +1,47 @@
 // The weekly digest (M4): waiting items, what runs out, what changed, open loops and the week's journal. Built live
-// for the current week; Sundays 19:00 IST it is written to vault/digests/YYYY-Www.md and kept. Never private scope,
+// for the current week; Sundays 19:00 local time (TZ) it is written to vault/digests/YYYY-Www.md and kept. Never private scope,
 // because Pitcrew shows it too.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Digest } from "../shared/types.js";
-import { now, httpErr, DAY, VAULT } from "./config.js";
+import { now, httpErr, DAY, VAULT, dayKey } from "./config.js";
 import { db, one, all, run, json, getSetting } from "./db.js";
 import { parseDoc, writeDoc, commit, withVault } from "./vault.js";
 import { areaRecord } from "./store.js";
 
 db.exec("CREATE TABLE IF NOT EXISTS digests (week TEXT PRIMARY KEY, data TEXT NOT NULL, built_at INTEGER NOT NULL)");
 
-const IST = 330 * 60000, HOUR = 3600000;
+const HOUR = 3600000;
 export const WEEK_RE = /^\d{4}-W\d{2}$/;
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
-/** YYYY-MM-DD of t on an Indian wall clock, whatever TZ the process runs in. */
-export const istDay = (t: number) => iso(t + IST);
+const shift = (t: number) => t - new Date(t).getTimezoneOffset() * 60000;
+/** Local midnight of the UTC calendar date u, so a week spans DST changes correctly. */
+const midnight = (u: number) => { const d = new Date(u); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime(); };
 
 export function isoWeek(t: number): string {
-  const d = new Date(t + IST), dow = (d.getUTCDay() + 6) % 7;
+  const d = new Date(shift(t)), dow = (d.getUTCDay() + 6) % 7;
   const thu = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - dow + 3), y = new Date(thu).getUTCFullYear();
   return `${y}-W${String(1 + Math.floor((thu - Date.UTC(y, 0, 1)) / (7 * DAY))).padStart(2, "0")}`;
 }
-/** Monday 00:00 to the next Monday 00:00, IST, as epoch ms. */
+/** Monday 00:00 to the next Monday 00:00, local time, as epoch ms. */
 export function weekRange(week: string) {
   const [y, w] = week.split("-W").map(Number), jan4 = Date.UTC(y, 0, 4);
   const monday = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY + (w - 1) * 7 * DAY;
-  return { start: monday - IST, end: monday - IST + 7 * DAY, from: iso(monday), to: iso(monday + 6 * DAY) };
+  return { start: midnight(monday), end: midnight(monday + 7 * DAY), from: iso(monday), to: iso(monday + 6 * DAY) };
 }
-/** The latest week whose Sunday 19:00 IST has passed. */
+/** The latest week whose Sunday 19:00 local time has passed. */
 export function dueWeek(t: number) {
   const w = isoWeek(t);
   return t >= weekRange(w).start + 6 * DAY + 19 * HOUR ? w : isoWeek(t - 7 * DAY);
 }
 
-const dayLabel = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+const dayLabel = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const areaName = (slug: string) => areaRecord(slug)?.name || slug;
 const LOOP = /(^|\s)#loop\b/i;
 
 export function buildDigest(week: string, t = now()): Digest {
   const { start, end, from, to } = weekRange(week);
-  const ref = Math.min(t, end), soon = istDay(ref + 30 * DAY);
+  const ref = Math.min(t, end), soon = dayKey(ref + 30 * DAY);
   const n = (sql: string) => one<{ n: number }>(sql)!.n;
   const runningOut = all<{ valid_until: string; area: string; data: string }>(
     "SELECT valid_until, area, data FROM docs WHERE kind='memory' AND status='active' AND scope!='private' AND valid_until IS NOT NULL AND valid_until<=? ORDER BY valid_until LIMIT 20", soon,
@@ -61,7 +62,7 @@ export function buildDigest(week: string, t = now()): Digest {
   for (const r of all<{ at: number; data: string }>("SELECT at, data FROM docs WHERE kind='episode' AND scope!='private' AND at>=? AND at<? ORDER BY at", start, end)) {
     const e = json<{ who: string; text: string }>(r.data, { who: "", text: "" }), line = e.text.split("\n")[0].trim();
     if (!line) continue;
-    const day = istDay(r.at);
+    const day = dayKey(r.at);
     days.set(day, [...(days.get(day) || []), `${e.who === "you" ? "You" : e.who}: ${line}`]);
   }
   return {
@@ -93,7 +94,7 @@ export function renderDigest(d: Digest): string {
   section("Running out", d.runningOut.map((r) => `- ${r.date}: ${r.text} (${areaName(r.area)})`), "Nothing runs out in the next 30 days.");
   section("What changed", d.changed.map((c) => `- ${c.text} (${c.detail})`), "No memories changed this week.");
   section("Open loops", d.openLoops.map((l) => `- ${l.text} (${areaName(l.area)})`), "No open loops.");
-  section("Journal", d.journal.flatMap((j) => [`### ${dayLabel(Date.parse(`${j.day}T12:00:00+05:30`))}`, ...j.lines.map((l) => `- ${l}`), ""]), "Nothing in the journal this week.");
+  section("Journal", d.journal.flatMap((j) => [`### ${dayLabel(Date.parse(`${j.day}T12:00:00`))}`, ...j.lines.map((l) => `- ${l}`), ""]), "Nothing in the journal this week.");
   return out.join("\n").trim();
 }
 

@@ -89,7 +89,7 @@ const firstLine = (body: string) => body.split("\n").map((l) => l.replace(/^[-*\
 export function contextHome(): ContextHome {
   const files = S.profileFiles(), weekAgo = now() - 7 * DAY;
   const soon = new Date(now() + 30 * DAY).toISOString().slice(0, 10);
-  const day = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
+  const day = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
   const changed = all<{ at: number; data: string; status: string }>("SELECT at, data, status FROM docs WHERE kind='memory' AND at>=? ORDER BY at DESC LIMIT 8", weekAgo)
     .map((r) => {
       const m = json<{ text: string; area: string; source: { kind: string; label: string } }>(r.data, { text: "", area: "", source: { kind: "other", label: "" } });

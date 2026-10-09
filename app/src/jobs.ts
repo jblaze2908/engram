@@ -15,13 +15,13 @@ let backupAt: number | null = null;
 const readMarker = () => { try { const n = existsSync(MARKER) ? Number(readFileSync(MARKER, "utf8").trim()) : NaN; backupAt = Number.isFinite(n) && n > 0 ? n : null; } catch { backupAt = null; } };
 export const lastBackup = () => backupAt;
 
-const RUNOUT_HOUR_IST = 9;
+const RUNOUT_HOUR = 9;
 export async function tick(t = now()) {
   readMarker();
   await sweepProposals(t);
   const d = await digestDue(t);
   if (d) await notifyDigest(d);
-  if (new Date(t + 330 * 60000).getUTCHours() >= RUNOUT_HOUR_IST) await runningOutCheck(t);
+  if (new Date(t).getHours() >= RUNOUT_HOUR) await runningOutCheck(t);
   await briefCheck(t);
   dreamCheck(t);
 }
