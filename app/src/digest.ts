@@ -11,12 +11,11 @@ import { areaRecord } from "./store.js";
 
 db.exec("CREATE TABLE IF NOT EXISTS digests (week TEXT PRIMARY KEY, data TEXT NOT NULL, built_at INTEGER NOT NULL)");
 
-const HOUR = 3600000;
 export const WEEK_RE = /^\d{4}-W\d{2}$/;
 const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 const shift = (t: number) => t - new Date(t).getTimezoneOffset() * 60000;
-/** Local midnight of the UTC calendar date u, so a week spans DST changes correctly. */
-const midnight = (u: number) => { const d = new Date(u); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()).getTime(); };
+/** Hour h on the local clock on the UTC calendar date u; built from fields so DST changes land right. */
+const localAt = (u: number, h = 0) => { const d = new Date(u); return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h).getTime(); };
 
 export function isoWeek(t: number): string {
   const d = new Date(shift(t)), dow = (d.getUTCDay() + 6) % 7;
@@ -27,12 +26,12 @@ export function isoWeek(t: number): string {
 export function weekRange(week: string) {
   const [y, w] = week.split("-W").map(Number), jan4 = Date.UTC(y, 0, 4);
   const monday = jan4 - ((new Date(jan4).getUTCDay() + 6) % 7) * DAY + (w - 1) * 7 * DAY;
-  return { start: midnight(monday), end: midnight(monday + 7 * DAY), from: iso(monday), to: iso(monday + 6 * DAY) };
+  return { start: localAt(monday), end: localAt(monday + 7 * DAY), from: iso(monday), to: iso(monday + 6 * DAY) };
 }
 /** The latest week whose Sunday 19:00 local time has passed. */
 export function dueWeek(t: number) {
   const w = isoWeek(t);
-  return t >= midnight(Date.parse(weekRange(w).to)) + 19 * HOUR ? w : isoWeek(t - 7 * DAY);
+  return t >= localAt(Date.parse(weekRange(w).to), 19) ? w : isoWeek(t - 7 * DAY);
 }
 
 const dayLabel = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
