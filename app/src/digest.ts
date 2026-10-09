@@ -32,7 +32,7 @@ export function weekRange(week: string) {
 /** The latest week whose Sunday 19:00 local time has passed. */
 export function dueWeek(t: number) {
   const w = isoWeek(t);
-  return t >= weekRange(w).start + 6 * DAY + 19 * HOUR ? w : isoWeek(t - 7 * DAY);
+  return t >= midnight(Date.parse(weekRange(w).to)) + 19 * HOUR ? w : isoWeek(t - 7 * DAY);
 }
 
 const dayLabel = (t: number) => new Date(t).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
