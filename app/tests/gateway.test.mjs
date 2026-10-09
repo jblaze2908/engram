@@ -222,6 +222,13 @@ test("OAuth: discovery, DCR, PKCE, callback bound to the session, refresh", asyn
   assert.equal((await raw(reader.token, "notes__list_issues", { repo: "n" })).content[0].text, "3 open issues in n", "refreshed and retried");
   assert.equal(oa.refreshes, 1);
 
+  // A refresh the server refuses with a code it made up is a sign-in problem, not an unreachable server.
+  oa.refreshError = "Missing or invalid code_verifier for token exchange";
+  oa.expireAccess();
+  assert.equal((await req("POST", "/api/connections/notes/refresh", undefined, { cookie })).status, 502);
+  assert.equal((await req("GET", "/api/connections/notes", undefined, { cookie })).json.detail, "Needs you to sign in");
+  delete oa.refreshError;
+
   // A pasted client id skips registration; with the cookie present the callback finishes directly.
   const p = await req("POST", "/api/connections", { name: "Notes two", url: oa.url, auth: "oauth", client_id: "pasted-client" }, { cookie });
   const az2 = new URL(p.json.authorize_url);

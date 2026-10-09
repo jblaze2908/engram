@@ -1,7 +1,7 @@
 // Engram's side of each upstream MCP server: one cached client per connection (never one per call), the OAuth client
 // provider whose storage is the encrypted secrets table, tools/list on connect and on a single 6 h timer.
 import { randomBytes } from "node:crypto";
-import { Client, InMemoryTransport, StreamableHTTPClientTransport, auth, UnauthorizedError, type OAuthClientProvider, type OAuthClientMetadata,
+import { Client, InMemoryTransport, StreamableHTTPClientTransport, auth, UnauthorizedError, OAuthError, type OAuthClientProvider, type OAuthClientMetadata,
   type StoredOAuthClientInformation, type StoredOAuthTokens, type OAuthDiscoveryState, type AuthProvider } from "@modelcontextprotocol/client";
 import { HOST, now, httpErr, type HttpError } from "../config.js";
 import { one, run } from "../db.js";
@@ -107,10 +107,13 @@ export async function closeClient(id: string) {
   if (p) await p.then((c) => c.close(), () => {}).catch(() => {});
 }
 
+const OAUTH_OUTAGE = new Set(["server_error", "temporarily_unavailable", "too_many_requests"]);
 /** A short sentence for the UI and trace. Upstream error text is never shown as-is: it can carry anything. */
 export function describe(e: unknown, c: ConnRow): { state: ConnRow["state"]; error: string } {
   const err = e as HttpError;
   if (e instanceof UnauthorizedError || err?.name === "UnauthorizedError" || err?.status === 401) return { state: "auth", error: c.auth === "bearer" ? "The token was refused" : "Needs you to sign in" };
+  // A refused token refresh (Zomato's /token wants a code_verifier even then); only the server's own outages aren't a sign-in.
+  if (e instanceof OAuthError && !OAUTH_OUTAGE.has(e.code)) return { state: "auth", error: "Needs you to sign in" };
   if (err?.status && err.status < 500 && /^(Refused|Put credentials|Sign in|Start the sign-in)/.test(err.message)) return { state: "error", error: err.message };
   return { state: "error", error: "Can't reach it" };
 }

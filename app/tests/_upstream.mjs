@@ -1,6 +1,6 @@
 // A mock upstream MCP server on 127.0.0.1, built with @modelcontextprotocol/server. auth "bearer" checks a fixed PAT;
 // auth "oauth" also serves a minimal authorization server: RFC 9728 + RFC 8414 metadata, DCR, authorize with
-// auto-consent, PKCE S256 token exchange and refresh. Tool texts live in `descs`, so a test can change them; `extra`
+// auto-consent, PKCE S256 token exchange and refresh (`refreshError` makes refresh fail with that error). Tool texts live in `descs`, so a test can change them; `extra`
 // registers more tools, `scopes` adds scopes_supported to the protected-resource metadata, `accepts(redirect_uri)` makes
 // authorize refuse other callback addresses the way Canva does.
 import { createServer } from "node:http";
@@ -70,6 +70,7 @@ export async function mockUpstream({ auth = "bearer", pat = "pat-123", authServe
         const s256 = createHash("sha256").update(f.get("code_verifier") || "").digest("base64url");
         if (!c || c.challenge !== s256 || c.redirect !== f.get("redirect_uri")) return json({ error: "invalid_grant" }, 400);
       } else if (f.get("grant_type") === "refresh_token") {
+        if (m.refreshError) return json({ error: m.refreshError }, 400);
         if (!m.refresh.has(f.get("refresh_token"))) return json({ error: "invalid_grant" }, 400);
         m.refresh.delete(f.get("refresh_token"));
         m.refreshes++;
