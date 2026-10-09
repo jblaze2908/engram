@@ -1,6 +1,6 @@
 // A mock upstream MCP server on 127.0.0.1, built with @modelcontextprotocol/server. auth "bearer" checks a fixed PAT;
 // auth "oauth" also serves a minimal authorization server: RFC 9728 + RFC 8414 metadata, DCR, authorize with
-// auto-consent, PKCE S256 token exchange and refresh (`refreshError` makes refresh fail with that error). Tool texts live in `descs`, so a test can change them; `extra`
+// auto-consent, PKCE S256 token exchange and refresh (`refreshError` makes refresh fail with that error; `refreshNeedsVerifier` wants the sign-in's PKCE verifier on refresh, as Zomato does). Tool texts live in `descs`, so a test can change them; `extra`
 // registers more tools, `scopes` adds scopes_supported to the protected-resource metadata, `accepts(redirect_uri)` makes
 // authorize refuse other callback addresses the way Canva does.
 import { createServer } from "node:http";
@@ -15,7 +15,7 @@ const json = (v, status = 200, headers = {}) => new Response(JSON.stringify(v), 
 export async function mockUpstream({ auth = "bearer", pat = "pat-123", authServer, extra, scopes, accepts } = {}) {
   const m = {
     descs: { list_issues: "List issues in a repository.", create_issue: "Create a new issue in a repository.", q: "What to look for" },
-    inits: 0, calls: [], registrations: 0, refreshes: 0, issued: [], access: new Set(), refresh: new Set(), codes: new Map(), seenAuth: [],
+    inits: 0, calls: [], challengeOf: new Map(), registrations: 0, refreshes: 0, issued: [], access: new Set(), refresh: new Set(), codes: new Map(), seenAuth: [],
   };
   const tools = () => {
     const s = new McpServer({ name: "mock", version: "1.0.0" });
@@ -64,19 +64,24 @@ export async function mockUpstream({ auth = "bearer", pat = "pat-123", authServe
     }
     if (p === "/token" && req.method === "POST") {
       const f = new URLSearchParams(await req.text());
+      let challenge;
       if (f.get("grant_type") === "authorization_code") {
         const c = m.codes.get(f.get("code"));
+        challenge = c?.challenge;
         m.codes.delete(f.get("code"));
         const s256 = createHash("sha256").update(f.get("code_verifier") || "").digest("base64url");
         if (!c || c.challenge !== s256 || c.redirect !== f.get("redirect_uri")) return json({ error: "invalid_grant" }, 400);
       } else if (f.get("grant_type") === "refresh_token") {
         if (m.refreshError) return json({ error: m.refreshError }, 400);
         if (!m.refresh.has(f.get("refresh_token"))) return json({ error: "invalid_grant" }, 400);
+        challenge = m.challengeOf.get(f.get("refresh_token"));
+        const s256 = createHash("sha256").update(f.get("code_verifier") || "").digest("base64url");
+        if (m.refreshNeedsVerifier && s256 !== challenge) return json({ error: "Missing or invalid code_verifier for token exchange" }, 400);
         m.refresh.delete(f.get("refresh_token"));
         m.refreshes++;
       } else return json({ error: "unsupported_grant_type" }, 400);
       const access = `at-${rand()}`, refresh = `rt-${rand()}`;
-      m.access.add(access); m.refresh.add(refresh); m.issued.push(access, refresh);
+      m.access.add(access); m.refresh.add(refresh); m.issued.push(access, refresh); m.challengeOf.set(refresh, challenge);
       return json({ access_token: access, token_type: "Bearer", expires_in: 3600, refresh_token: refresh });
     }
     return json({ error: "not found" }, 404);

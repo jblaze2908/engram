@@ -21,6 +21,9 @@ export const LOOPBACK = "http://127.0.0.1/engram/oauth/callback";
 // Servers that check the callback only after you sign in, so the Connect probe can't see the refusal. Each gets a
 // callback already on its allowlist that keeps the code in the address bar (Postman's is a static page).
 const PASTE_BACK_VIA: Record<string, string> = { "mcp-server.zomato.com": "https://oauth.pstmn.io/v1/callback" };
+// Servers whose /token wants the PKCE code_verifier on refresh too (Zomato); their connections keep it after sign-in.
+const VERIFIER_ON_REFRESH = new Set(["mcp-server.zomato.com"]);
+const wantsVerifier = (url: string) => { const h = new URL(url).hostname; return VERIFIER_ON_REFRESH.has(h) || (process.env.ENGRAM_DEV_REFRESH_VERIFIER === "1" && h === "127.0.0.1"); };
 const STATE_TTL = 10 * 60_000;
 const REFRESH_EVERY = 6 * 3600_000;
 const sec = (id: string, k: string) => `conn:${id}:${k}`;
@@ -77,6 +80,17 @@ export function saveCredentials(id: string, p: { token?: string; client_id?: str
   }
 }
 
+/** safeFetch, plus the kept verifier on refresh for VERIFIER_ON_REFRESH servers. */
+function fetchFor(c: ConnRow): typeof safeFetch {
+  if (!wantsVerifier(c.url)) return safeFetch;
+  return (input, init = {}) => {
+    const b = init.body;
+    // A sign-in from before the verifier was kept has none; a placeholder still works if the server checks only presence.
+    if (b instanceof URLSearchParams && b.get("grant_type") === "refresh_token") b.set("code_verifier", getSecret(sec(c.id, "verifier")) ?? randomBytes(32).toString("base64url"));
+    return safeFetch(input, init);
+  };
+}
+
 // ---------- clients ----------
 
 const clients = new Map<string, Promise<Client>>();
@@ -91,7 +105,7 @@ function open(c: ConnRow) {
       await client.connect(mine);
       return client;
     }
-    const transport = new StreamableHTTPClientTransport(new URL(c.url), { authProvider: authProvider(c), fetch: safeFetch, onInsufficientScope: "throw" });
+    const transport = new StreamableHTTPClientTransport(new URL(c.url), { authProvider: authProvider(c), fetch: fetchFor(c), onInsufficientScope: "throw" });
     await client.connect(transport);
     return client;
   })();
@@ -169,7 +183,7 @@ async function authorizeUrl(c: ConnRow, session: string): Promise<URL | null> {
   for (;;) {
     const p = new Provider(c.id, session);
     let r: Awaited<ReturnType<typeof auth>>;
-    try { r = await auth(p, { serverUrl: c.url, fetchFn: safeFetch }); } catch (e) {
+    try { r = await auth(p, { serverUrl: c.url, fetchFn: fetchFor(c) }); } catch (e) {
       // auth() tries the stored refresh token first; once the server refuses it, only a fresh sign-in is left.
       if (!(e instanceof OAuthError) || OAUTH_OUTAGE.has(e.code) || !p.tokens()) throw e;
       p.invalidateCredentials("tokens");
@@ -203,13 +217,13 @@ export async function finishOAuth(state: string, code: string, iss: string | und
   if (!c) throw httpErr(404, "No such connection");
   try {
     if (c.url === BUILTIN_GOOGLE) await googleExchange(c.id, code, REDIRECT);
-    else await auth(new Provider(c.id, session), { serverUrl: c.url, authorizationCode: code, iss, fetchFn: safeFetch });
+    else await auth(new Provider(c.id, session), { serverUrl: c.url, authorizationCode: code, iss, fetchFn: fetchFor(c) });
   } catch (e) {
     const d = describe(e, c);
     setState(c.id, "auth", "Sign-in failed");
     throw httpErr(502, `${c.name}: ${d.state === "auth" ? "sign-in failed" : d.error}`);
   }
-  dropSecret(sec(c.id, "verifier"));
+  if (!wantsVerifier(c.url)) dropSecret(sec(c.id, "verifier"));
   await refreshTools(c.id);
   return c.id;
 }

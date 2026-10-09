@@ -243,6 +243,26 @@ test("OAuth: discovery, DCR, PKCE, callback bound to the session, refresh", asyn
   assert.equal((await req("GET", "/api/connections/notes-two", undefined, { cookie })).json.status, "ok");
 });
 
+test("OAuth: a server that wants the sign-in's PKCE verifier on refresh (Zomato) refreshes without a new sign-in", async () => {
+  process.env.ENGRAM_DEV_REFRESH_VERIFIER = "1";
+  const zo = await mockUpstream({ auth: "oauth" });
+  zo.refreshNeedsVerifier = true;
+  try {
+    const r = await req("POST", "/api/connections", { name: "Food", url: zo.url, auth: "oauth" }, { cookie });
+    assert.equal(r.status, 200, r.text);
+    const cb = new URL((await fetch(r.json.authorize_url, { redirect: "manual" })).headers.get("location"));
+    const done = await fetch(`${BASE}${cb.pathname}${cb.search}`, { redirect: "manual", headers: { cookie } });
+    assert.equal(done.headers.get("location"), "/#/connections/food");
+    await grant(reader, ["food/list_issues"]);
+    zo.expireAccess();
+    assert.equal((await raw(reader.token, "food__list_issues", { repo: "z" })).content[0].text, "3 open issues in z", "refreshed with the kept verifier");
+    assert.equal(zo.refreshes, 1);
+    zo.expireAccess();
+    assert.equal((await raw(reader.token, "food__list_issues", { repo: "z" })).content[0].text, "3 open issues in z", "and again after rotation");
+    assert.equal(zo.refreshes, 2);
+  } finally { delete process.env.ENGRAM_DEV_REFRESH_VERIFIER; await zo.close(); }
+});
+
 test("OAuth paste-back: a server that refuses Engram's callback signs in through a pasted loopback address", async () => {
   const LOOPBACK = "http://127.0.0.1/engram/oauth/callback";
   const lo = await mockUpstream({ auth: "oauth", accepts: (u) => u === LOOPBACK });
