@@ -168,7 +168,14 @@ async function authorizeUrl(c: ConnRow, session: string): Promise<URL | null> {
   if (via && !getSecret(PASTE_BACK(c.id))) { new Provider(c.id, session).invalidateCredentials("all"); putSecret(PASTE_BACK(c.id), via); }
   for (;;) {
     const p = new Provider(c.id, session);
-    if ((await auth(p, { serverUrl: c.url, fetchFn: safeFetch })) !== "REDIRECT") return null;
+    let r: Awaited<ReturnType<typeof auth>>;
+    try { r = await auth(p, { serverUrl: c.url, fetchFn: safeFetch }); } catch (e) {
+      // auth() tries the stored refresh token first; once the server refuses it, only a fresh sign-in is left.
+      if (!(e instanceof OAuthError) || OAUTH_OUTAGE.has(e.code) || !p.tokens()) throw e;
+      p.invalidateCredentials("tokens");
+      continue;
+    }
+    if (r !== "REDIRECT") return null;
     if (!(await refusesRedirect(p.authUrl!))) return p.authUrl!;
     if (p.redirectUrl === LOOPBACK) throw httpErr(400, `Refused: ${c.name} won't send the sign-in back to Engram`);
     p.invalidateCredentials("all");

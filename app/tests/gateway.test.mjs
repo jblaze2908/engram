@@ -227,6 +227,9 @@ test("OAuth: discovery, DCR, PKCE, callback bound to the session, refresh", asyn
   oa.expireAccess();
   assert.equal((await req("POST", "/api/connections/notes/refresh", undefined, { cookie })).status, 502);
   assert.equal((await req("GET", "/api/connections/notes", undefined, { cookie })).json.detail, "Needs you to sign in");
+  const again = await req("POST", "/api/connections/notes/connect", undefined, { cookie });
+  assert.equal(again.status, 200, again.text);
+  assert.ok(again.json.authorize_url, "Connect drops the refused refresh token and starts a fresh sign-in");
   delete oa.refreshError;
 
   // A pasted client id skips registration; with the cookie present the callback finishes directly.
